@@ -1,0 +1,31 @@
+{
+  "name": "@astraprotocols/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client for Astra Flow escrow contracts on Stellar/Soroban.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/AstraProtocols/astra-flow",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "require": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": ["src", "dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

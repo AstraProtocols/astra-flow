@@ -1,0 +1,38 @@
+{
+  "name": "@astraprotocols/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Astra Flow dashboard — conditional escrow on Stellar.",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "next lint",
+    "test": "next lint",
+    "clean": "rm -rf .next"
+  },
+  "dependencies": {
+    "@astraprotocols/sdk": "*",
+    "@stellar/freighter-api": "^3.1.0",
+    "@stellar/stellar-sdk": "^14.2.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.6.3",
+    "lucide-react": "^0.487.0",
+    "next": "^15.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.1",
+    "tailwind-merge": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.23.0",
+    "eslint-config-next": "^15.2.4",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "astra-flow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Decentralized conditional escrow and milestone payment settlement engine on Stellar/Soroban.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AstraProtocols/astra-flow.git"
+  },
+  "workspaces": [
+    "apps/client",
+    "apps/server",
+    "packages/sdk"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "dev:concurrent": "concurrently -n sdk,server,client -c yellow,magenta,cyan \"npm run dev -w @astraprotocols/sdk\" \"npm run dev -w @astraprotocols/server\" \"npm run dev -w @astraprotocols/client\"",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test && cargo test",
+    "test:contracts": "cargo test",
+    "build:contracts": "stellar contract build",
+    "deploy:testnet": "bash tools/scripts/deploy-testnet.sh",
+    "seed:milestone": "npx tsx tools/scripts/mock-milestone.ts",
+    "clean": "turbo run clean && rm -rf .turbo node_modules target"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.13",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.9.2"
+}
