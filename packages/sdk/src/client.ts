@@ -138,7 +138,7 @@ export class EscrowClient {
     return assembled.toXDR();
   }
 
-  private build(method: string, args: xdr.ScVal[]): BuiltInvocation {
+  protected build(method: string, args: xdr.ScVal[]): BuiltInvocation {
     return {
       method,
       args,
@@ -174,4 +174,49 @@ export class EscrowClient {
 
 export function createEscrowClient(options: EscrowClientOptions): EscrowClient {
   return new EscrowClient(options);
+}
+
+/**
+ * Primary RPC client. Each mutating helper simulates the invocation against
+ * Soroban RPC and returns an assembled, unsigned transaction XDR.
+ */
+export class AstraFlowClient extends EscrowClient {
+  async initializeEscrow(source: string, params: InitializeEscrowParams): Promise<string> {
+    return this.assembleTransaction(source, this.initialize(params));
+  }
+
+  async deposit(source: string): Promise<string> {
+    return this.assembleTransaction(source, this.depositFunds());
+  }
+
+  async submitProof(
+    source: string,
+    milestoneId: number,
+    proofHash: string | Uint8Array,
+  ): Promise<string> {
+    return this.assembleTransaction(source, this.submitMilestoneProof(milestoneId, proofHash));
+  }
+
+  async releaseMilestone(source: string, milestoneId: number): Promise<string> {
+    return this.assembleTransaction(source, this.approveMilestone(milestoneId));
+  }
+
+  async dispute(source: string): Promise<string> {
+    return this.assembleTransaction(source, this.raiseDispute());
+  }
+
+  async resolveDispute(source: string, funderBps: number, recipientBps: number): Promise<string> {
+    return this.assembleTransaction(
+      source,
+      this.build("resolve_dispute", [toScVal(funderBps, "u32"), toScVal(recipientBps, "u32")]),
+    );
+  }
+
+  async claimTimeoutRefund(source: string): Promise<string> {
+    return this.assembleTransaction(source, this.build("claim_timeout_refund", []));
+  }
+}
+
+export function createAstraFlowClient(options: EscrowClientOptions): AstraFlowClient {
+  return new AstraFlowClient(options);
 }

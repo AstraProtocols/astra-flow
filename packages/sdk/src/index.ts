@@ -1,4 +1,4 @@
-export { EscrowClient, createEscrowClient } from "./client.js";
+export { EscrowClient, AstraFlowClient, createEscrowClient, createAstraFlowClient } from "./client.js";
 export type { EscrowClientOptions, BuiltInvocation } from "./client.js";
 export { decodeContractEvents } from "./events.js";
 export {
