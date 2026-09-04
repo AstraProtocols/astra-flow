@@ -8,6 +8,8 @@ const envSchema = z.object({
   STELLAR_NETWORK: z.enum(["testnet", "mainnet"]).default("testnet"),
   ESCROW_CONTRACT_ID: z.string().optional(),
   SOROBAN_RPC_URL: z.string().optional(),
+  INDEXER_DB_PATH: z.string().default(":memory:"),
+  INDEXER_POLL_MS: z.coerce.number().int().positive().default(4_000),
 });
 
 export type Env = z.infer<typeof envSchema>;
