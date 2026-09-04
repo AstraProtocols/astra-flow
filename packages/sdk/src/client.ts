@@ -8,7 +8,14 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { decodeContractEvents } from "./events.js";
-import { bytesToHex, hexToBytes, serializeScVal } from "./scval.js";
+import {
+  hexToBytes,
+  milestoneToScVal,
+  parseEscrowConfig,
+  parseEscrowState,
+  parseMilestone,
+  toScVal,
+} from "./converters.js";
 import {
   NETWORKS,
   type DecodedContractEvent,
@@ -16,8 +23,6 @@ import {
   type EscrowState,
   type InitializeEscrowParams,
   type Milestone,
-  type MilestoneInput,
-  type MilestoneStatus,
   type NetworkName,
 } from "./types.js";
 
@@ -33,43 +38,6 @@ export interface BuiltInvocation {
   args: xdr.ScVal[];
   contractId: string;
   networkPassphrase: string;
-}
-
-const STATE_BY_VALUE: EscrowState[] = [
-  "Pending",
-  "Active",
-  "Completed",
-  "Disputed",
-  "Cancelled",
-];
-
-function milestoneToScVal(milestone: MilestoneInput): xdr.ScVal {
-  const description =
-    typeof milestone.descriptionHash === "string"
-      ? hexToBytes(milestone.descriptionHash)
-      : milestone.descriptionHash;
-
-  return nativeToScVal(
-    {
-      milestone_id: milestone.milestoneId,
-      payout_amount: milestone.payoutAmount,
-      description_hash: Buffer.from(description),
-      is_approved: false,
-      completed_at: BigInt(0),
-    },
-    {
-      type: "object",
-    } as never,
-  );
-}
-
-function mapMilestoneStatus(milestone: {
-  isApproved: boolean;
-  proofHash?: string;
-}): MilestoneStatus {
-  if (milestone.isApproved) return "Released";
-  if (milestone.proofHash) return "Under Review";
-  return "Pending";
 }
 
 /**
@@ -101,10 +69,10 @@ export class EscrowClient {
   initialize(params: InitializeEscrowParams): BuiltInvocation {
     const milestones = params.milestones.map((item) => milestoneToScVal(item));
     return this.build("initialize", [
-      serializeScVal(params.funder, "address"),
-      serializeScVal(params.recipient, "address"),
-      serializeScVal(params.arbitrator, "address"),
-      serializeScVal(params.token, "address"),
+      toScVal(params.funder, "address"),
+      toScVal(params.recipient, "address"),
+      toScVal(params.arbitrator, "address"),
+      toScVal(params.token, "address"),
       nativeToScVal(milestones, { type: "vec" }),
     ]);
   }
@@ -116,13 +84,13 @@ export class EscrowClient {
   submitMilestoneProof(milestoneId: number, proofHash: string | Uint8Array): BuiltInvocation {
     const bytes = typeof proofHash === "string" ? hexToBytes(proofHash) : proofHash;
     return this.build("submit_milestone_proof", [
-      serializeScVal(milestoneId, "u32"),
-      serializeScVal(bytes, "bytes"),
+      toScVal(milestoneId, "u32"),
+      toScVal(bytes, "bytes"),
     ]);
   }
 
   approveMilestone(milestoneId: number): BuiltInvocation {
-    return this.build("approve_milestone", [serializeScVal(milestoneId, "u32")]);
+    return this.build("approve_milestone", [toScVal(milestoneId, "u32")]);
   }
 
   raiseDispute(): BuiltInvocation {
@@ -130,47 +98,16 @@ export class EscrowClient {
   }
 
   async getConfig(): Promise<EscrowConfig> {
-    const result = await this.simulate("get_config", []);
-    const raw = result as Record<string, unknown>;
-    return {
-      funder: String(raw.funder),
-      recipient: String(raw.recipient),
-      arbitrator: String(raw.arbitrator),
-      asset: String(raw.asset),
-      totalAmount: BigInt(String(raw.total_amount ?? raw.totalAmount ?? 0)),
-      releaseThreshold: Number(raw.release_threshold ?? raw.releaseThreshold ?? 0),
-    };
+    return parseEscrowConfig(await this.simulate("get_config", []));
   }
 
   async getState(): Promise<EscrowState> {
-    const result = await this.simulate("get_state", []);
-    if (typeof result === "string" && STATE_BY_VALUE.includes(result as EscrowState)) {
-      return result as EscrowState;
-    }
-    if (typeof result === "number") {
-      return STATE_BY_VALUE[result] ?? "Pending";
-    }
-    return "Pending";
+    return parseEscrowState(await this.simulate("get_state", []));
   }
 
   async getMilestone(milestoneId: number, proofHash?: string): Promise<Milestone> {
-    const result = (await this.simulate("get_milestone", [
-      serializeScVal(milestoneId, "u32"),
-    ])) as Record<string, unknown>;
-
-    const description = result.description_hash ?? result.descriptionHash;
-    const milestone: Milestone = {
-      milestoneId: Number(result.milestone_id ?? result.milestoneId ?? milestoneId),
-      payoutAmount: BigInt(String(result.payout_amount ?? result.payoutAmount ?? 0)),
-      descriptionHash:
-        description instanceof Uint8Array ? bytesToHex(description) : String(description ?? ""),
-      isApproved: Boolean(result.is_approved ?? result.isApproved),
-      completedAt: BigInt(String(result.completed_at ?? result.completedAt ?? 0)),
-      proofHash,
-      status: "Pending",
-    };
-    milestone.status = mapMilestoneStatus(milestone);
-    return milestone;
+    const result = await this.simulate("get_milestone", [toScVal(milestoneId, "u32")]);
+    return parseMilestone(result, proofHash);
   }
 
   decodeEvents(

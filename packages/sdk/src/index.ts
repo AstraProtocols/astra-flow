@@ -7,7 +7,15 @@ export {
   hexToBytes,
   bytesToHex,
   toI128String,
-} from "./scval.js";
+  toScVal,
+  fromScVal,
+  milestoneToScVal,
+  parseEscrowConfig,
+  parseMilestone,
+  parseEscrowState,
+  parseDisputeRecord,
+  parseBalanceBook,
+} from "./converters.js";
 export { NETWORKS, ESCROW_STATE_BY_VALUE, MILESTONE_STATUS_BY_VALUE } from "./types.js";
 export type {
   NetworkName,
