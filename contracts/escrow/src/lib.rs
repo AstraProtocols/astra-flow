@@ -1,58 +1,15 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
-    Vec,
+    contract, contracterror, contractimpl, symbol_short, token, Address, BytesN, Env, Vec,
 };
 
+mod storage;
+
+pub use storage::{BalanceBook, DataKey, EscrowConfig, EscrowState, Milestone};
+
+#[cfg(test)]
 mod test;
-
-/// Lifecycle of a single escrow instance.
-#[contracttype]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum EscrowState {
-    Pending = 0,
-    Active = 1,
-    Completed = 2,
-    Disputed = 3,
-    Cancelled = 4,
-}
-
-/// A payable work package inside an escrow.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Milestone {
-    pub milestone_id: u32,
-    pub payout_amount: i128,
-    pub description_hash: BytesN<32>,
-    pub is_approved: bool,
-    pub completed_at: u64,
-}
-
-/// Parties, asset, and release policy for the escrow.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowConfig {
-    pub funder: Address,
-    pub recipient: Address,
-    pub arbitrator: Address,
-    pub asset: Address,
-    pub total_amount: i128,
-    pub release_threshold: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Config,
-    State,
-    Deposited,
-    Milestone(u32),
-    Proof(u32),
-    MileIds,
-    Approved,
-}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -86,7 +43,7 @@ impl EscrowContract {
     ) -> Result<(), Error> {
         funder.require_auth();
 
-        if env.storage().instance().has(&DataKey::Config) {
+        if storage::is_initialized(&env) {
             return Err(Error::AlreadyInit);
         }
         if milestones.is_empty() {
@@ -110,16 +67,16 @@ impl EscrowContract {
                 .checked_add(milestone.payout_amount)
                 .ok_or(Error::BadAmount)?;
 
-            let stored = Milestone {
-                milestone_id: milestone.milestone_id,
-                payout_amount: milestone.payout_amount,
-                description_hash: milestone.description_hash,
-                is_approved: false,
-                completed_at: 0,
-            };
-            env.storage()
-                .persistent()
-                .set(&DataKey::Milestone(milestone.milestone_id), &stored);
+            storage::set_milestone(
+                &env,
+                &Milestone {
+                    milestone_id: milestone.milestone_id,
+                    payout_amount: milestone.payout_amount,
+                    description_hash: milestone.description_hash,
+                    is_approved: false,
+                    completed_at: 0,
+                },
+            );
         }
 
         let config = EscrowConfig {
@@ -131,14 +88,12 @@ impl EscrowContract {
             release_threshold: ids.len() as u32,
         };
 
-        env.storage().instance().set(&DataKey::Config, &config);
-        env.storage()
-            .instance()
-            .set(&DataKey::State, &EscrowState::Pending);
-        env.storage().instance().set(&DataKey::Deposited, &false);
-        env.storage().instance().set(&DataKey::MileIds, &ids);
-        env.storage().instance().set(&DataKey::Approved, &0u32);
-        env.storage().instance().extend_ttl(100_000, 100_000);
+        storage::set_admin(&env, &funder);
+        storage::set_config(&env, &config);
+        storage::set_state(&env, &EscrowState::Pending);
+        storage::set_balances(&env, &BalanceBook::empty());
+        storage::set_milestone_ids(&env, &ids);
+        storage::set_approved_count(&env, 0);
 
         env.events()
             .publish((symbol_short!("init"), funder.clone()), total);
@@ -148,20 +103,16 @@ impl EscrowContract {
 
     /// Pull the funder's pre-approved token allowance into the contract balance.
     pub fn deposit_funds(env: Env) -> Result<(), Error> {
-        let config = Self::config(&env)?;
+        let config = storage::get_config(&env)?;
         config.funder.require_auth();
 
-        let state = Self::state(&env)?;
+        let state = storage::get_state(&env)?;
         if state != EscrowState::Pending {
             return Err(Error::BadState);
         }
 
-        let deposited: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Deposited)
-            .unwrap_or(false);
-        if deposited {
+        let mut book = storage::get_balances(&env);
+        if book.deposited > 0 {
             return Err(Error::AlreadyPaid);
         }
 
@@ -173,10 +124,9 @@ impl EscrowContract {
             &config.total_amount,
         );
 
-        env.storage().instance().set(&DataKey::Deposited, &true);
-        env.storage()
-            .instance()
-            .set(&DataKey::State, &EscrowState::Active);
+        book.deposited = config.total_amount;
+        storage::set_balances(&env, &book);
+        storage::set_state(&env, &EscrowState::Active);
 
         env.events().publish(
             (symbol_short!("deposit"), config.funder.clone()),
@@ -192,18 +142,16 @@ impl EscrowContract {
         milestone_id: u32,
         proof_hash: BytesN<32>,
     ) -> Result<(), Error> {
-        let config = Self::config(&env)?;
+        let config = storage::get_config(&env)?;
         config.recipient.require_auth();
         Self::assert_mutable(&env)?;
 
-        let milestone = Self::milestone(&env, milestone_id)?;
+        let milestone = storage::get_milestone(&env, milestone_id)?;
         if milestone.is_approved {
             return Err(Error::AlreadyPaid);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proof(milestone_id), &proof_hash);
+        storage::set_proof(&env, milestone_id, &proof_hash);
 
         env.events()
             .publish((symbol_short!("proof"), milestone_id), proof_hash);
@@ -214,13 +162,11 @@ impl EscrowContract {
     /// Funder or arbitrator signs off on a milestone and releases its payout.
     /// During a dispute, only the arbitrator may unlock funds.
     pub fn approve_milestone(env: Env, milestone_id: u32) -> Result<(), Error> {
-        let config = Self::config(&env)?;
-        let state = Self::state(&env)?;
+        let config = storage::get_config(&env)?;
+        let state = storage::get_state(&env)?;
 
         match state {
             EscrowState::Active => {
-                // Funder is the designated approver while the escrow is live.
-                // The arbitrator is the exclusive signer once a dispute is raised.
                 config.funder.require_auth();
             }
             EscrowState::Disputed => {
@@ -229,16 +175,12 @@ impl EscrowContract {
             _ => return Err(Error::BadState),
         }
 
-        let deposited: bool = env
-            .storage()
-            .instance()
-            .get(&DataKey::Deposited)
-            .unwrap_or(false);
-        if !deposited {
+        let mut book = storage::get_balances(&env);
+        if book.deposited == 0 {
             return Err(Error::NoDeposit);
         }
 
-        let mut milestone = Self::milestone(&env, milestone_id)?;
+        let mut milestone = storage::get_milestone(&env, milestone_id)?;
         if milestone.is_approved {
             return Err(Error::AlreadyPaid);
         }
@@ -252,19 +194,19 @@ impl EscrowContract {
 
         milestone.is_approved = true;
         milestone.completed_at = env.ledger().timestamp();
-        env.storage()
-            .persistent()
-            .set(&DataKey::Milestone(milestone_id), &milestone);
+        storage::set_milestone(&env, &milestone);
 
-        let approved_count = Self::increment_approved(&env);
+        book.released = book
+            .released
+            .checked_add(milestone.payout_amount)
+            .ok_or(Error::BadAmount)?;
+        storage::set_balances(&env, &book);
+
+        let approved_count = storage::increment_approved(&env);
         if approved_count >= config.release_threshold {
-            env.storage()
-                .instance()
-                .set(&DataKey::State, &EscrowState::Completed);
+            storage::set_state(&env, &EscrowState::Completed);
         } else if state == EscrowState::Disputed {
-            env.storage()
-                .instance()
-                .set(&DataKey::State, &EscrowState::Active);
+            storage::set_state(&env, &EscrowState::Active);
         }
 
         env.events().publish(
@@ -277,17 +219,15 @@ impl EscrowContract {
 
     /// Freeze unreleased milestone balances until the arbitrator resolves.
     pub fn raise_dispute(env: Env) -> Result<(), Error> {
-        let config = Self::config(&env)?;
+        let config = storage::get_config(&env)?;
         config.funder.require_auth();
 
-        let state = Self::state(&env)?;
+        let state = storage::get_state(&env)?;
         if state != EscrowState::Active {
             return Err(Error::BadState);
         }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::State, &EscrowState::Disputed);
+        storage::set_state(&env, &EscrowState::Disputed);
 
         env.events()
             .publish((symbol_short!("dispute"), config.funder.clone()), true);
@@ -296,63 +236,35 @@ impl EscrowContract {
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
-        Self::config(&env)
+        storage::get_config(&env)
     }
 
     pub fn get_state(env: Env) -> Result<EscrowState, Error> {
-        Self::state(&env)
+        storage::get_state(&env)
     }
 
     pub fn get_milestone(env: Env, milestone_id: u32) -> Result<Milestone, Error> {
-        Self::milestone(&env, milestone_id)
+        storage::get_milestone(&env, milestone_id)
     }
 
     pub fn get_proof(env: Env, milestone_id: u32) -> Result<BytesN<32>, Error> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Proof(milestone_id))
-            .ok_or(Error::NotFound)
+        storage::get_proof(&env, milestone_id)
+    }
+
+    pub fn get_balances(env: Env) -> Result<BalanceBook, Error> {
+        if !storage::is_initialized(&env) {
+            return Err(Error::NotInit);
+        }
+        Ok(storage::get_balances(&env))
     }
 }
 
 impl EscrowContract {
-    fn config(env: &Env) -> Result<EscrowConfig, Error> {
-        env.storage()
-            .instance()
-            .get(&DataKey::Config)
-            .ok_or(Error::NotInit)
-    }
-
-    fn state(env: &Env) -> Result<EscrowState, Error> {
-        env.storage()
-            .instance()
-            .get(&DataKey::State)
-            .ok_or(Error::NotInit)
-    }
-
-    fn milestone(env: &Env, milestone_id: u32) -> Result<Milestone, Error> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Milestone(milestone_id))
-            .ok_or(Error::NotFound)
-    }
-
     fn assert_mutable(env: &Env) -> Result<(), Error> {
-        match Self::state(env)? {
+        match storage::get_state(env)? {
             EscrowState::Active => Ok(()),
             EscrowState::Disputed => Err(Error::Locked),
             _ => Err(Error::BadState),
         }
-    }
-
-    fn increment_approved(env: &Env) -> u32 {
-        let count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Approved)
-            .unwrap_or(0);
-        let next = count + 1;
-        env.storage().instance().set(&DataKey::Approved, &next);
-        next
     }
 }

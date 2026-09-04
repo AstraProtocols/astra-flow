@@ -115,7 +115,12 @@ fn dispute_locks_unreleased_milestones() {
     client.initialize(&funder, &recipient, &arbitrator, &token_id, &milestones);
 
     let token = TokenClient::new(&env, &token_id);
-    token.approve(&funder, &contract_id, &50_000, &(env.ledger().sequence() + 100));
+    token.approve(
+        &funder,
+        &contract_id,
+        &50_000,
+        &(env.ledger().sequence() + 100),
+    );
     client.deposit_funds();
 
     client.raise_dispute();
