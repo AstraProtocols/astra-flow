@@ -860,6 +860,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "lock_secs"
+                            },
+                            "val": {
+                              "u64": "2592000"
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "recipient"
                             },
                             "val": {
@@ -895,6 +903,18 @@
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LockUntil"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1702592000"
                       }
                     },
                     {

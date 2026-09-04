@@ -47,6 +47,8 @@ pub fn deposit_funds(env: &Env) -> Result<(), Error> {
     book.deposited = config.total_amount;
     storage::set_balances(env, &book);
     storage::set_state(env, &EscrowState::Active);
+    let unlock_at = env.ledger().timestamp().saturating_add(config.lock_secs);
+    storage::set_lock_until(env, unlock_at);
 
     FundsDeposited {
         funder: config.funder.clone(),

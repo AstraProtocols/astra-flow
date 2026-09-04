@@ -6,7 +6,8 @@ use crate::Error;
 pub const INSTANCE_TTL_THRESHOLD: u32 = 100_000;
 pub const INSTANCE_TTL_EXTEND_TO: u32 = 200_000;
 
-/// Persistent TTL for milestone records, proofs, and balance books.
+/// Default proof lock window: 30 days of ledger time.
+pub const DEFAULT_LOCK_WINDOW: u64 = 2_592_000;
 pub const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
 pub const PERSISTENT_TTL_EXTEND_TO: u32 = 535_679;
 
@@ -74,6 +75,7 @@ pub struct EscrowConfig {
     pub asset: Address,
     pub total_amount: i128,
     pub release_threshold: u32,
+    pub lock_secs: u64,
 }
 
 /// On-contract token accounting. `locked` is deposited minus released minus refunded.
@@ -273,4 +275,18 @@ pub fn get_dispute(env: &Env) -> Result<DisputeRecord, Error> {
         .persistent()
         .get(&DataKey::Dispute)
         .ok_or(Error::NotFound)
+}
+
+pub fn set_lock_until(env: &Env, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::LockUntil, &timestamp);
+    bump_instance(env);
+}
+
+pub fn get_lock_until(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::LockUntil)
+        .unwrap_or(0)
 }

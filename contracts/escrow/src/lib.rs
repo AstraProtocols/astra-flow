@@ -33,6 +33,7 @@ pub enum Error {
     BadSequence = 13,
     AlreadySubmitted = 14,
     BadSplit = 15,
+    TooEarly = 16,
 }
 
 #[contractevent]
@@ -83,6 +84,15 @@ pub struct DisputeResolved {
     pub recip_bps: u32,
     pub funder_amt: i128,
     pub recip_amt: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TimeoutRefunded {
+    #[topic]
+    pub funder: Address,
+    pub amount: i128,
+    pub at: u64,
 }
 
 #[contract]
@@ -151,6 +161,7 @@ impl EscrowContract {
             asset: token.clone(),
             total_amount: total,
             release_threshold: ids.len() as u32,
+            lock_secs: storage::DEFAULT_LOCK_WINDOW,
         };
 
         storage::set_admin(&env, &funder);
@@ -307,6 +318,41 @@ impl EscrowContract {
             recip_bps: recipient_bps,
             funder_amt,
             recip_amt,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Funder recovers remaining locked tokens after the proof lock window elapses.
+    pub fn claim_timeout_refund(env: Env) -> Result<(), Error> {
+        let config = storage::get_config(&env)?;
+        config.funder.require_auth();
+
+        let state = storage::get_state(&env)?;
+        if state != EscrowState::Active {
+            return Err(Error::BadState);
+        }
+
+        let now = env.ledger().timestamp();
+        let unlock_at = storage::get_lock_until(&env);
+        if now < unlock_at {
+            return Err(Error::TooEarly);
+        }
+
+        let refund = storage::get_balances(&env).locked();
+        if refund <= 0 {
+            return Err(Error::NoDeposit);
+        }
+
+        token::transfer_to(&env, &config.funder, refund)?;
+        token::credit_refunded(&env, refund)?;
+        storage::set_state(&env, &EscrowState::Cancelled);
+
+        TimeoutRefunded {
+            funder: config.funder,
+            amount: refund,
+            at: now,
         }
         .publish(&env);
 
