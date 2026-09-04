@@ -110,7 +110,7 @@ fn dispute_locks_unreleased_milestones() {
     let client = EscrowContractClient::new(&env, &contract_id);
 
     let mut milestones = Vec::new(&env);
-    milestones.push_back(sample_milestone(&env, 7, 50_000, 7));
+    milestones.push_back(sample_milestone(&env, 1, 50_000, 7));
 
     client.initialize(&funder, &recipient, &arbitrator, &token_id, &milestones);
 
@@ -126,10 +126,10 @@ fn dispute_locks_unreleased_milestones() {
     client.raise_dispute();
     assert_eq!(client.get_state(), EscrowState::Disputed);
 
-    let result = client.try_submit_milestone_proof(&7, &proof_hash(&env, 9));
+    let result = client.try_submit_milestone_proof(&1, &proof_hash(&env, 9));
     assert!(result.is_err());
 
-    client.approve_milestone(&7);
+    client.approve_milestone(&1);
     assert_eq!(client.get_state(), EscrowState::Completed);
     assert_eq!(token.balance(&recipient), 50_000);
 }

@@ -1,7 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, symbol_short, token, Address, BytesN, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, symbol_short, token, Address, BytesN,
+    Env, Vec,
 };
 
 mod storage;
@@ -25,6 +26,21 @@ pub enum Error {
     Locked = 8,
     BadAmount = 9,
     DupId = 10,
+    BadToken = 11,
+    BadRoles = 12,
+    BadSequence = 13,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowInitialized {
+    #[topic]
+    pub funder: Address,
+    pub recipient: Address,
+    pub arbitrator: Address,
+    pub token: Address,
+    pub total: i128,
+    pub count: u32,
 }
 
 #[contract]
@@ -46,21 +62,26 @@ impl EscrowContract {
         if storage::is_initialized(&env) {
             return Err(Error::AlreadyInit);
         }
+
+        Self::validate_roles(&funder, &recipient, &arbitrator, &token)?;
+        Self::validate_token(&env, &token)?;
+
         if milestones.is_empty() {
             return Err(Error::BadAmount);
         }
 
         let mut total: i128 = 0;
         let mut ids = Vec::<u32>::new(&env);
+        let mut expected_id: u32 = 1;
 
         for milestone in milestones.iter() {
+            if milestone.milestone_id != expected_id {
+                return Err(Error::BadSequence);
+            }
+            expected_id = expected_id.checked_add(1).ok_or(Error::BadSequence)?;
+
             if milestone.payout_amount <= 0 {
                 return Err(Error::BadAmount);
-            }
-            for existing in ids.iter() {
-                if existing == milestone.milestone_id {
-                    return Err(Error::DupId);
-                }
             }
             ids.push_back(milestone.milestone_id);
             total = total
@@ -81,9 +102,9 @@ impl EscrowContract {
 
         let config = EscrowConfig {
             funder: funder.clone(),
-            recipient,
-            arbitrator,
-            asset: token,
+            recipient: recipient.clone(),
+            arbitrator: arbitrator.clone(),
+            asset: token.clone(),
             total_amount: total,
             release_threshold: ids.len() as u32,
         };
@@ -95,8 +116,15 @@ impl EscrowContract {
         storage::set_milestone_ids(&env, &ids);
         storage::set_approved_count(&env, 0);
 
-        env.events()
-            .publish((symbol_short!("init"), funder.clone()), total);
+        EscrowInitialized {
+            funder: funder.clone(),
+            recipient,
+            arbitrator,
+            token,
+            total,
+            count: ids.len() as u32,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -260,6 +288,30 @@ impl EscrowContract {
 }
 
 impl EscrowContract {
+    fn validate_roles(
+        funder: &Address,
+        recipient: &Address,
+        arbitrator: &Address,
+        token: &Address,
+    ) -> Result<(), Error> {
+        if funder == recipient || funder == arbitrator || recipient == arbitrator {
+            return Err(Error::BadRoles);
+        }
+        if token == funder || token == recipient || token == arbitrator {
+            return Err(Error::BadToken);
+        }
+        Ok(())
+    }
+
+    fn validate_token(env: &Env, token: &Address) -> Result<(), Error> {
+        let client = token::Client::new(env, token);
+        let decimals = client.try_decimals();
+        match decimals {
+            Ok(Ok(value)) if value > 0 && value <= 18 => Ok(()),
+            _ => Err(Error::BadToken),
+        }
+    }
+
     fn assert_mutable(env: &Env) -> Result<(), Error> {
         match storage::get_state(env)? {
             EscrowState::Active => Ok(()),

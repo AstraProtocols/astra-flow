@@ -102,7 +102,7 @@
                             "symbol": "milestone_id"
                           },
                           "val": {
-                            "u32": 7
+                            "u32": 1
                           }
                         },
                         {
@@ -194,7 +194,7 @@
               "function_name": "approve_milestone",
               "args": [
                 {
-                  "u32": 7
+                  "u32": 1
                 }
               ]
             }
@@ -439,7 +439,7 @@
                     "symbol": "Milestone"
                   },
                   {
-                    "u32": 7
+                    "u32": 1
                   }
                 ]
               },
@@ -475,7 +475,7 @@
                       "symbol": "milestone_id"
                     },
                     "val": {
-                      "u32": 7
+                      "u32": 1
                     }
                   },
                   {
@@ -512,7 +512,7 @@
               "val": {
                 "vec": [
                   {
-                    "u32": 7
+                    "u32": 1
                   }
                 ]
               }
