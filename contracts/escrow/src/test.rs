@@ -20,6 +20,8 @@ fn sample_milestone(env: &Env, id: u32, amount: i128, seed: u8) -> Milestone {
         description_hash: proof_hash(env, seed),
         is_approved: false,
         completed_at: 0,
+        status: MilestoneStatus::Pending,
+        submitted_at: 0,
     }
 }
 
@@ -76,6 +78,9 @@ fn initialize_and_deposit_then_release_milestone() {
     let proof = proof_hash(&env, 42);
     client.submit_milestone_proof(&1, &proof);
     assert_eq!(client.get_proof(&1), proof);
+    let under_review = client.get_milestone(&1);
+    assert_eq!(under_review.status, MilestoneStatus::UnderReview);
+    assert_eq!(under_review.submitted_at, 1_700_000_000);
 
     client.approve_milestone(&1);
 

@@ -7,7 +7,7 @@ use soroban_sdk::{
 mod storage;
 mod token;
 
-pub use storage::{BalanceBook, DataKey, EscrowConfig, EscrowState, Milestone};
+pub use storage::{BalanceBook, DataKey, EscrowConfig, EscrowState, Milestone, MilestoneStatus};
 
 #[cfg(test)]
 mod test;
@@ -29,6 +29,7 @@ pub enum Error {
     BadToken = 11,
     BadRoles = 12,
     BadSequence = 13,
+    AlreadySubmitted = 14,
 }
 
 #[contractevent]
@@ -41,6 +42,16 @@ pub struct EscrowInitialized {
     pub token: Address,
     pub total: i128,
     pub count: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofSubmitted {
+    #[topic]
+    pub milestone: u32,
+    pub recipient: Address,
+    pub proof: BytesN<32>,
+    pub at: u64,
 }
 
 #[contract]
@@ -96,6 +107,8 @@ impl EscrowContract {
                     description_hash: milestone.description_hash,
                     is_approved: false,
                     completed_at: 0,
+                    status: MilestoneStatus::Pending,
+                    submitted_at: 0,
                 },
             );
         }
@@ -144,15 +157,30 @@ impl EscrowContract {
         config.recipient.require_auth();
         Self::assert_mutable(&env)?;
 
-        let milestone = storage::get_milestone(&env, milestone_id)?;
-        if milestone.is_approved {
+        let mut milestone = storage::get_milestone(&env, milestone_id)?;
+        if milestone.is_approved || milestone.status == MilestoneStatus::Released {
             return Err(Error::AlreadyPaid);
         }
+        if milestone.status == MilestoneStatus::UnderReview {
+            return Err(Error::AlreadySubmitted);
+        }
+        if milestone.status != MilestoneStatus::Pending {
+            return Err(Error::BadState);
+        }
 
+        let submitted_at = env.ledger().timestamp();
+        milestone.status = MilestoneStatus::UnderReview;
+        milestone.submitted_at = submitted_at;
+        storage::set_milestone(&env, &milestone);
         storage::set_proof(&env, milestone_id, &proof_hash);
 
-        env.events()
-            .publish((symbol_short!("proof"), milestone_id), proof_hash);
+        ProofSubmitted {
+            milestone: milestone_id,
+            recipient: config.recipient,
+            proof: proof_hash,
+            at: submitted_at,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -186,6 +214,7 @@ impl EscrowContract {
         token::transfer_to(&env, &config.recipient, milestone.payout_amount)?;
 
         milestone.is_approved = true;
+        milestone.status = MilestoneStatus::Released;
         milestone.completed_at = env.ledger().timestamp();
         storage::set_milestone(&env, &milestone);
         token::credit_released(&env, milestone.payout_amount)?;

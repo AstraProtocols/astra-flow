@@ -112,6 +112,22 @@
                           "val": {
                             "i128": "50000"
                           }
+                        },
+                        {
+                          "key": {
+                            "symbol": "status"
+                          },
+                          "val": {
+                            "u32": 0
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "submitted_at"
+                          },
+                          "val": {
+                            "u64": "0"
+                          }
                         }
                       ]
                     }
@@ -484,6 +500,22 @@
                     },
                     "val": {
                       "i128": "50000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "status"
+                    },
+                    "val": {
+                      "u32": 2
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "submitted_at"
+                    },
+                    "val": {
+                      "u64": "0"
                     }
                   }
                 ]

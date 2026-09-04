@@ -40,6 +40,17 @@ pub enum EscrowState {
     Cancelled = 4,
 }
 
+/// Execution state of an individual milestone.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum MilestoneStatus {
+    Pending = 0,
+    UnderReview = 1,
+    Released = 2,
+    Disputed = 3,
+}
+
 /// A payable work package inside an escrow.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +60,8 @@ pub struct Milestone {
     pub description_hash: BytesN<32>,
     pub is_approved: bool,
     pub completed_at: u64,
+    pub status: MilestoneStatus,
+    pub submitted_at: u64,
 }
 
 /// Parties, asset, and release policy for the escrow.
