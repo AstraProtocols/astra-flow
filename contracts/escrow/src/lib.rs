@@ -1,11 +1,11 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, symbol_short, token, Address, BytesN,
-    Env, Vec,
+    contract, contracterror, contractevent, contractimpl, symbol_short, Address, BytesN, Env, Vec,
 };
 
 mod storage;
+mod token;
 
 pub use storage::{BalanceBook, DataKey, EscrowConfig, EscrowState, Milestone};
 
@@ -64,7 +64,7 @@ impl EscrowContract {
         }
 
         Self::validate_roles(&funder, &recipient, &arbitrator, &token)?;
-        Self::validate_token(&env, &token)?;
+        token::assert_sep41_token(&env, &token)?;
 
         if milestones.is_empty() {
             return Err(Error::BadAmount);
@@ -131,37 +131,7 @@ impl EscrowContract {
 
     /// Pull the funder's pre-approved token allowance into the contract balance.
     pub fn deposit_funds(env: Env) -> Result<(), Error> {
-        let config = storage::get_config(&env)?;
-        config.funder.require_auth();
-
-        let state = storage::get_state(&env)?;
-        if state != EscrowState::Pending {
-            return Err(Error::BadState);
-        }
-
-        let mut book = storage::get_balances(&env);
-        if book.deposited > 0 {
-            return Err(Error::AlreadyPaid);
-        }
-
-        let token_client = token::Client::new(&env, &config.asset);
-        token_client.transfer_from(
-            &env.current_contract_address(),
-            &config.funder,
-            &env.current_contract_address(),
-            &config.total_amount,
-        );
-
-        book.deposited = config.total_amount;
-        storage::set_balances(&env, &book);
-        storage::set_state(&env, &EscrowState::Active);
-
-        env.events().publish(
-            (symbol_short!("deposit"), config.funder.clone()),
-            config.total_amount,
-        );
-
-        Ok(())
+        token::deposit_funds(&env)
     }
 
     /// Recipient submits an off-chain proof hash for a pending milestone.
@@ -203,7 +173,7 @@ impl EscrowContract {
             _ => return Err(Error::BadState),
         }
 
-        let mut book = storage::get_balances(&env);
+        let book = storage::get_balances(&env);
         if book.deposited == 0 {
             return Err(Error::NoDeposit);
         }
@@ -213,22 +183,12 @@ impl EscrowContract {
             return Err(Error::AlreadyPaid);
         }
 
-        let token_client = token::Client::new(&env, &config.asset);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &config.recipient,
-            &milestone.payout_amount,
-        );
+        token::transfer_to(&env, &config.recipient, milestone.payout_amount)?;
 
         milestone.is_approved = true;
         milestone.completed_at = env.ledger().timestamp();
         storage::set_milestone(&env, &milestone);
-
-        book.released = book
-            .released
-            .checked_add(milestone.payout_amount)
-            .ok_or(Error::BadAmount)?;
-        storage::set_balances(&env, &book);
+        token::credit_released(&env, milestone.payout_amount)?;
 
         let approved_count = storage::increment_approved(&env);
         if approved_count >= config.release_threshold {
@@ -301,15 +261,6 @@ impl EscrowContract {
             return Err(Error::BadToken);
         }
         Ok(())
-    }
-
-    fn validate_token(env: &Env, token: &Address) -> Result<(), Error> {
-        let client = token::Client::new(env, token);
-        let decimals = client.try_decimals();
-        match decimals {
-            Ok(Ok(value)) if value > 0 && value <= 18 => Ok(()),
-            _ => Err(Error::BadToken),
-        }
     }
 
     fn assert_mutable(env: &Env) -> Result<(), Error> {
