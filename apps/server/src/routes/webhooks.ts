@@ -1,51 +1,103 @@
 import { Router } from "express";
 import { createEscrowClient } from "@astraprotocols/sdk";
 import { loadEnv } from "../lib/env.js";
-import { extractMergedPullRequest } from "../services/github.js";
+import {
+  extractMergedPullRequest,
+  mapMergedCommitToEscrowTask,
+  type GitHubPullRequestEvent,
+} from "../services/github.js";
 import { recordProof } from "../services/escrow-indexer.js";
 
 export const githubWebhookRouter = Router();
 
+function parsePayload(req: { body: unknown }): GitHubPullRequestEvent {
+  if (Buffer.isBuffer(req.body)) {
+    return JSON.parse(req.body.toString("utf8")) as GitHubPullRequestEvent;
+  }
+  if (typeof req.body === "string") {
+    return JSON.parse(req.body) as GitHubPullRequestEvent;
+  }
+  return (req.body ?? {}) as GitHubPullRequestEvent;
+}
+
 githubWebhookRouter.post("/github", (req, res) => {
   const env = loadEnv();
-  const rawBody = Buffer.isBuffer(req.body)
-    ? req.body
-    : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}));
-
   const eventName = req.header("x-github-event") ?? "unknown";
-  const payload = Buffer.isBuffer(req.body) ? JSON.parse(rawBody.toString("utf8")) : req.body;
-  const merged = eventName === "pull_request" ? extractMergedPullRequest(payload) : null;
+  const delivery = req.header("x-github-delivery");
 
-  if (!merged) {
-    res.status(202).json({ accepted: true, handled: false, eventName });
+  if (eventName === "ping") {
+    res.status(202).json({ accepted: true, handled: false, eventName, delivery });
     return;
   }
 
-  const proofHash = (merged.sha ?? "").padEnd(64, "0").slice(0, 64);
-  const escrow = recordProof(merged.author, 1, proofHash);
+  if (eventName !== "pull_request") {
+    res.status(202).json({ accepted: true, handled: false, eventName, delivery });
+    return;
+  }
 
-  let invocation = null;
-  if (env.ESCROW_CONTRACT_ID) {
+  let payload: GitHubPullRequestEvent;
+  try {
+    payload = parsePayload(req);
+  } catch {
+    res.status(400).json({ error: "malformed GitHub JSON payload" });
+    return;
+  }
+
+  const merged = extractMergedPullRequest(payload);
+  if (!merged) {
+    res.status(202).json({
+      accepted: true,
+      handled: false,
+      eventName,
+      delivery,
+      reason: payload.action === "closed" ? "pull request was not merged" : "ignored action",
+      action: payload.action,
+    });
+    return;
+  }
+
+  const task = mapMergedCommitToEscrowTask(merged, env.ESCROW_CONTRACT_ID);
+  if (!task) {
+    res.status(202).json({
+      accepted: true,
+      handled: false,
+      eventName,
+      delivery,
+      merge: merged,
+      reason: "no escrow id in PR metadata and ESCROW_CONTRACT_ID is unset",
+    });
+    return;
+  }
+
+  const escrow = recordProof(task.escrowId, task.milestoneId, task.proofHash);
+
+  let invocation: { method: string; contractId: string; milestoneId: number } | null = null;
+  if (task.escrowId.startsWith("C")) {
     const client = createEscrowClient({
-      contractId: env.ESCROW_CONTRACT_ID,
+      contractId: task.escrowId,
       network: env.STELLAR_NETWORK,
       rpcUrl: env.SOROBAN_RPC_URL,
     });
-    invocation = client.submitMilestoneProof(1, proofHash);
+    const built = client.submitMilestoneProof(task.milestoneId, task.proofHash);
+    invocation = {
+      method: built.method,
+      contractId: built.contractId,
+      milestoneId: task.milestoneId,
+    };
   }
 
   res.status(202).json({
     accepted: true,
     handled: true,
     eventName,
+    delivery,
     merge: merged,
+    task,
     proof: {
-      milestoneId: 1,
-      proofHash,
+      milestoneId: task.milestoneId,
+      proofHash: task.proofHash,
       escrowAddress: escrow.address,
     },
-    contractInvocation: invocation
-      ? { method: invocation.method, contractId: invocation.contractId }
-      : null,
+    contractInvocation: invocation,
   });
 });
