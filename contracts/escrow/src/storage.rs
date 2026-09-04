@@ -85,6 +85,17 @@ pub struct BalanceBook {
     pub refunded: i128,
 }
 
+/// Adjudication record for a disputed escrow.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeRecord {
+    pub raised_by: Address,
+    pub raised_at: u64,
+    pub funder_bps: u32,
+    pub recip_bps: u32,
+    pub resolved: bool,
+}
+
 impl BalanceBook {
     pub fn empty() -> Self {
         Self {
@@ -249,4 +260,17 @@ pub fn increment_approved(env: &Env) -> u32 {
     let next = get_approved_count(env).saturating_add(1);
     set_approved_count(env, next);
     next
+}
+
+pub fn set_dispute(env: &Env, dispute: &DisputeRecord) {
+    let key = DataKey::Dispute;
+    env.storage().persistent().set(&key, dispute);
+    bump_persistent(env, &key);
+}
+
+pub fn get_dispute(env: &Env) -> Result<DisputeRecord, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Dispute)
+        .ok_or(Error::NotFound)
 }

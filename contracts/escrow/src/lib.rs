@@ -1,13 +1,15 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, symbol_short, Address, BytesN, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, Address, BytesN, Env, Vec,
 };
 
 mod storage;
 mod token;
 
-pub use storage::{BalanceBook, DataKey, EscrowConfig, EscrowState, Milestone, MilestoneStatus};
+pub use storage::{
+    BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
+};
 
 #[cfg(test)]
 mod test;
@@ -30,6 +32,7 @@ pub enum Error {
     BadRoles = 12,
     BadSequence = 13,
     AlreadySubmitted = 14,
+    BadSplit = 15,
 }
 
 #[contractevent]
@@ -61,6 +64,25 @@ pub struct MilestoneReleased {
     pub milestone: u32,
     pub recipient: Address,
     pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeRaised {
+    #[topic]
+    pub raised_by: Address,
+    pub at: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeResolved {
+    #[topic]
+    pub arbitrator: Address,
+    pub funder_bps: u32,
+    pub recip_bps: u32,
+    pub funder_amt: i128,
+    pub recip_amt: i128,
 }
 
 #[contract]
@@ -212,10 +234,81 @@ impl EscrowContract {
             return Err(Error::BadState);
         }
 
+        let now = env.ledger().timestamp();
+        storage::set_dispute(
+            &env,
+            &DisputeRecord {
+                raised_by: config.funder.clone(),
+                raised_at: now,
+                funder_bps: 0,
+                recip_bps: 0,
+                resolved: false,
+            },
+        );
+        Self::mark_open_milestones_disputed(&env)?;
         storage::set_state(&env, &EscrowState::Disputed);
 
-        env.events()
-            .publish((symbol_short!("dispute"), config.funder.clone()), true);
+        DisputeRaised {
+            raised_by: config.funder,
+            at: now,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Arbitrator splits remaining locked tokens between funder and recipient.
+    /// `funder_bps` and `recipient_bps` are basis points and must sum to 10_000.
+    pub fn resolve_dispute(env: Env, funder_bps: u32, recipient_bps: u32) -> Result<(), Error> {
+        let config = storage::get_config(&env)?;
+        config.arbitrator.require_auth();
+
+        if storage::get_state(&env)? != EscrowState::Disputed {
+            return Err(Error::BadState);
+        }
+        if funder_bps
+            .checked_add(recipient_bps)
+            .ok_or(Error::BadSplit)?
+            != 10_000
+        {
+            return Err(Error::BadSplit);
+        }
+
+        let mut dispute = storage::get_dispute(&env)?;
+        if dispute.resolved {
+            return Err(Error::AlreadyPaid);
+        }
+
+        let locked = storage::get_balances(&env).locked();
+        let funder_amt = locked
+            .checked_mul(i128::from(funder_bps))
+            .ok_or(Error::BadAmount)?
+            / 10_000;
+        let recip_amt = locked - funder_amt;
+
+        if funder_amt > 0 {
+            token::transfer_to(&env, &config.funder, funder_amt)?;
+            token::credit_refunded(&env, funder_amt)?;
+        }
+        if recip_amt > 0 {
+            token::transfer_to(&env, &config.recipient, recip_amt)?;
+            token::credit_released(&env, recip_amt)?;
+        }
+
+        dispute.funder_bps = funder_bps;
+        dispute.recip_bps = recipient_bps;
+        dispute.resolved = true;
+        storage::set_dispute(&env, &dispute);
+        storage::set_state(&env, &EscrowState::Completed);
+
+        DisputeResolved {
+            arbitrator: config.arbitrator,
+            funder_bps,
+            recip_bps: recipient_bps,
+            funder_amt,
+            recip_amt,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -234,6 +327,10 @@ impl EscrowContract {
 
     pub fn get_proof(env: Env, milestone_id: u32) -> Result<BytesN<32>, Error> {
         storage::get_proof(&env, milestone_id)
+    }
+
+    pub fn get_dispute(env: Env) -> Result<DisputeRecord, Error> {
+        storage::get_dispute(&env)
     }
 
     pub fn get_balances(env: Env) -> Result<BalanceBook, Error> {
@@ -292,6 +389,18 @@ impl EscrowContract {
         }
         .publish(env);
 
+        Ok(())
+    }
+
+    fn mark_open_milestones_disputed(env: &Env) -> Result<(), Error> {
+        let ids = storage::get_milestone_ids(env);
+        for id in ids.iter() {
+            let mut milestone = storage::get_milestone(env, id)?;
+            if milestone.status != MilestoneStatus::Released {
+                milestone.status = MilestoneStatus::Disputed;
+                storage::set_milestone(env, &milestone);
+            }
+        }
         Ok(())
     }
 
