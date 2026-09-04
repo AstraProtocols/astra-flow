@@ -60,8 +60,9 @@ export default function DashboardPage() {
   const { publicKey, network, connector, connecting, error, connect, disconnect, setNetwork } =
     useWallet();
   const [modalOpen, setModalOpen] = useState(false);
-  const [unlockingId, setUnlockingId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [milestones, setMilestones] = useState(demoMilestones);
+  const [role, setRole] = useState<"funder" | "recipient" | "arbitrator">("funder");
 
   const locked = useMemo(
     () =>
@@ -70,19 +71,51 @@ export default function DashboardPage() {
         .reduce((sum, item) => sum + item.payoutAmount, 0n),
     [milestones],
   );
-  const pendingApprovals = milestones.filter((item) => item.status === "Under Review").length;
+  const pendingApprovals = milestones.filter(
+    (item) => item.status === "Under Review" || item.status === "UnderReview",
+  ).length;
 
-  async function unlock(milestoneId: number) {
-    setUnlockingId(milestoneId);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setMilestones((current) =>
-      current.map((item) =>
-        item.milestoneId === milestoneId
-          ? { ...item, isApproved: true, status: "Released", completedAt: BigInt(Date.now()) }
-          : item,
-      ),
-    );
-    setUnlockingId(null);
+  async function withBusy(milestoneId: number, work: () => void) {
+    setBusyId(milestoneId);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    work();
+    setBusyId(null);
+  }
+
+  async function approve(milestoneId: number) {
+    await withBusy(milestoneId, () => {
+      setMilestones((current) =>
+        current.map((item) =>
+          item.milestoneId === milestoneId
+            ? { ...item, isApproved: true, status: "Released", completedAt: BigInt(Date.now()) }
+            : item,
+        ),
+      );
+    });
+  }
+
+  async function submitProof(milestoneId: number, proofHash: string) {
+    await withBusy(milestoneId, () => {
+      setMilestones((current) =>
+        current.map((item) =>
+          item.milestoneId === milestoneId
+            ? { ...item, proofHash, status: "Under Review", submittedAt: BigInt(Date.now()) }
+            : item,
+        ),
+      );
+    });
+  }
+
+  async function dispute(milestoneId: number) {
+    await withBusy(milestoneId, () => {
+      setMilestones((current) =>
+        current.map((item) =>
+          item.status === "Released" || item.milestoneId !== milestoneId
+            ? item
+            : { ...item, status: "Disputed" },
+        ),
+      );
+    });
   }
 
   return (
@@ -91,6 +124,9 @@ export default function DashboardPage() {
         <Link href="/" className="flex items-center gap-2 text-cyan">
           <Waves className="h-5 w-5" />
           <span className="font-semibold tracking-wide">Astra Flow</span>
+        </Link>
+        <Link href="/analytics" className="text-sm text-slate-400 hover:text-cyan">
+          Analytics
         </Link>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -160,6 +196,16 @@ export default function DashboardPage() {
               <p className="text-xs uppercase tracking-[0.2em] text-cyan">Protocol 01</p>
               <h2 className="mt-1 text-xl font-semibold">Design systems escrow</h2>
             </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={role}
+              onChange={(event) => setRole(event.target.value as typeof role)}
+              className="rounded-full border border-white/10 bg-midnight px-3 py-2 text-sm"
+            >
+              <option value="funder">Funder</option>
+              <option value="recipient">Recipient</option>
+              <option value="arbitrator">Arbitrator</option>
+            </select>
             <button
               type="button"
               onClick={() => setModalOpen(true)}
@@ -168,11 +214,15 @@ export default function DashboardPage() {
               Create escrow
             </button>
           </div>
+          </div>
           <div className="mt-6">
             <MilestoneTimeline
               milestones={milestones}
-              onUnlock={unlock}
-              unlockingId={unlockingId}
+              role={role}
+              busyId={busyId}
+              onSubmitProof={submitProof}
+              onApprove={approve}
+              onDispute={dispute}
             />
           </div>
         </div>
