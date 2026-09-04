@@ -226,6 +226,25 @@ pub fn get_approved_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
+pub fn enter_guard(env: &Env) -> Result<(), Error> {
+    let locked: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::Guard)
+        .unwrap_or(false);
+    if locked {
+        return Err(Error::Locked);
+    }
+    env.storage().instance().set(&DataKey::Guard, &true);
+    bump_instance(env);
+    Ok(())
+}
+
+pub fn exit_guard(env: &Env) {
+    env.storage().instance().set(&DataKey::Guard, &false);
+    bump_instance(env);
+}
+
 pub fn increment_approved(env: &Env) -> u32 {
     let next = get_approved_count(env).saturating_add(1);
     set_approved_count(env, next);

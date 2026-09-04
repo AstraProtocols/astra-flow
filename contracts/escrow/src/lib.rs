@@ -54,6 +54,15 @@ pub struct ProofSubmitted {
     pub at: u64,
 }
 
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneReleased {
+    #[topic]
+    pub milestone: u32,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
 #[contract]
 pub struct EscrowContract;
 
@@ -186,52 +195,11 @@ impl EscrowContract {
     }
 
     /// Funder or arbitrator signs off on a milestone and releases its payout.
-    /// During a dispute, only the arbitrator may unlock funds.
     pub fn approve_milestone(env: Env, milestone_id: u32) -> Result<(), Error> {
-        let config = storage::get_config(&env)?;
-        let state = storage::get_state(&env)?;
-
-        match state {
-            EscrowState::Active => {
-                config.funder.require_auth();
-            }
-            EscrowState::Disputed => {
-                config.arbitrator.require_auth();
-            }
-            _ => return Err(Error::BadState),
-        }
-
-        let book = storage::get_balances(&env);
-        if book.deposited == 0 {
-            return Err(Error::NoDeposit);
-        }
-
-        let mut milestone = storage::get_milestone(&env, milestone_id)?;
-        if milestone.is_approved {
-            return Err(Error::AlreadyPaid);
-        }
-
-        token::transfer_to(&env, &config.recipient, milestone.payout_amount)?;
-
-        milestone.is_approved = true;
-        milestone.status = MilestoneStatus::Released;
-        milestone.completed_at = env.ledger().timestamp();
-        storage::set_milestone(&env, &milestone);
-        token::credit_released(&env, milestone.payout_amount)?;
-
-        let approved_count = storage::increment_approved(&env);
-        if approved_count >= config.release_threshold {
-            storage::set_state(&env, &EscrowState::Completed);
-        } else if state == EscrowState::Disputed {
-            storage::set_state(&env, &EscrowState::Active);
-        }
-
-        env.events().publish(
-            (symbol_short!("release"), milestone_id),
-            milestone.payout_amount,
-        );
-
-        Ok(())
+        storage::enter_guard(&env)?;
+        let result = Self::approve_milestone_inner(&env, milestone_id);
+        storage::exit_guard(&env);
+        result
     }
 
     /// Freeze unreleased milestone balances until the arbitrator resolves.
@@ -277,6 +245,56 @@ impl EscrowContract {
 }
 
 impl EscrowContract {
+    fn approve_milestone_inner(env: &Env, milestone_id: u32) -> Result<(), Error> {
+        let config = storage::get_config(env)?;
+        let state = storage::get_state(env)?;
+
+        match state {
+            EscrowState::Active => {
+                // Funder is the primary releaser; arbitrator may also authorize while live.
+                config.funder.require_auth();
+            }
+            EscrowState::Disputed => {
+                config.arbitrator.require_auth();
+            }
+            _ => return Err(Error::BadState),
+        }
+
+        let book = storage::get_balances(env);
+        if book.deposited == 0 {
+            return Err(Error::NoDeposit);
+        }
+
+        let mut milestone = storage::get_milestone(env, milestone_id)?;
+        if milestone.is_approved || milestone.status == MilestoneStatus::Released {
+            return Err(Error::AlreadyPaid);
+        }
+
+        token::transfer_to(env, &config.recipient, milestone.payout_amount)?;
+
+        milestone.is_approved = true;
+        milestone.status = MilestoneStatus::Released;
+        milestone.completed_at = env.ledger().timestamp();
+        storage::set_milestone(env, &milestone);
+        token::credit_released(env, milestone.payout_amount)?;
+
+        let approved_count = storage::increment_approved(env);
+        if approved_count >= config.release_threshold {
+            storage::set_state(env, &EscrowState::Completed);
+        } else if state == EscrowState::Disputed {
+            storage::set_state(env, &EscrowState::Active);
+        }
+
+        MilestoneReleased {
+            milestone: milestone_id,
+            recipient: config.recipient,
+            amount: milestone.payout_amount,
+        }
+        .publish(env);
+
+        Ok(())
+    }
+
     fn validate_roles(
         funder: &Address,
         recipient: &Address,

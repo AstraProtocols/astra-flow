@@ -658,6 +658,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "Guard"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "State"
                           }
                         ]
