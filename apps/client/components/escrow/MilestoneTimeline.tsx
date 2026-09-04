@@ -7,14 +7,18 @@ import { cn, formatStroops } from "@/lib/utils";
 
 const statusStyles: Record<MilestoneStatus, string> = {
   Pending: "border-white/10 text-slate-300",
+  UnderReview: "border-cyan/40 text-cyan",
   "Under Review": "border-cyan/40 text-cyan",
   Released: "border-emerald/50 text-emerald",
+  Disputed: "border-amber-400/50 text-amber-300",
 };
 
 const statusIcon: Record<MilestoneStatus, typeof Clock> = {
   Pending: Clock,
+  UnderReview: Lock,
   "Under Review": Lock,
   Released: Check,
+  Disputed: Lock,
 };
 
 interface MilestoneTimelineProps {
