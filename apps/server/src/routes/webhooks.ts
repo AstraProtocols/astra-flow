@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createEscrowClient } from "@astraprotocols/sdk";
 import { loadEnv } from "../lib/env.js";
-import { extractMergedPullRequest, verifyGitHubSignature } from "../services/github.js";
+import { extractMergedPullRequest } from "../services/github.js";
 import { recordProof } from "../services/escrow-indexer.js";
 
 export const githubWebhookRouter = Router();
@@ -11,14 +11,6 @@ githubWebhookRouter.post("/github", (req, res) => {
   const rawBody = Buffer.isBuffer(req.body)
     ? req.body
     : Buffer.from(typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {}));
-
-  const signature = req.header("x-hub-signature-256");
-  if (env.GITHUB_WEBHOOK_SECRET !== "dev-webhook-secret") {
-    if (!verifyGitHubSignature(rawBody, signature, env.GITHUB_WEBHOOK_SECRET)) {
-      res.status(401).json({ error: "invalid GitHub signature" });
-      return;
-    }
-  }
 
   const eventName = req.header("x-github-event") ?? "unknown";
   const payload = Buffer.isBuffer(req.body) ? JSON.parse(rawBody.toString("utf8")) : req.body;

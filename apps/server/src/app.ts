@@ -2,7 +2,9 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import { loadEnv } from "./lib/env.js";
+import { githubWebhookAuth } from "./middleware/auth.js";
 import { attestationRouter } from "./routes/attestation.js";
+import { authRouter } from "./routes/auth.js";
 import { escrowRouter } from "./routes/escrows.js";
 import { githubWebhookRouter } from "./routes/webhooks.js";
 
@@ -21,6 +23,7 @@ export function createApp() {
   app.use(
     "/api/webhooks",
     express.raw({ type: "application/json" }),
+    githubWebhookAuth,
     githubWebhookRouter,
   );
   app.use(express.json({ limit: "1mb" }));
@@ -29,6 +32,7 @@ export function createApp() {
     res.json({ ok: true, service: "astra-flow-indexer" });
   });
 
+  app.use("/api/auth", authRouter);
   app.use("/api/escrows", escrowRouter);
   app.use("/api/attestation", attestationRouter);
 

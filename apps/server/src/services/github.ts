@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { verifyGitHubHmac } from "../middleware/auth.js";
 
 export interface GitHubPullRequestEvent {
   action: string;
@@ -18,17 +18,7 @@ export function verifyGitHubSignature(
   signatureHeader: string | undefined,
   secret: string,
 ): boolean {
-  if (!signatureHeader?.startsWith("sha256=")) {
-    return false;
-  }
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const received = signatureHeader.slice("sha256=".length);
-  const expectedBuffer = Buffer.from(expected, "utf8");
-  const receivedBuffer = Buffer.from(received, "utf8");
-  if (expectedBuffer.length !== receivedBuffer.length) {
-    return false;
-  }
-  return timingSafeEqual(expectedBuffer, receivedBuffer);
+  return verifyGitHubHmac(rawBody, signatureHeader, secret);
 }
 
 export function extractMergedPullRequest(event: GitHubPullRequestEvent) {
