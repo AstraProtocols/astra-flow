@@ -8,7 +8,7 @@ export {
   bytesToHex,
   toI128String,
 } from "./scval.js";
-export { NETWORKS } from "./types.js";
+export { NETWORKS, ESCROW_STATE_BY_VALUE, MILESTONE_STATUS_BY_VALUE } from "./types.js";
 export type {
   NetworkName,
   NetworkConfig,
@@ -19,4 +19,16 @@ export type {
   MilestoneStatus,
   InitializeEscrowParams,
   DecodedContractEvent,
+  BalanceBook,
+  DisputeRecord,
+  DisputePayload,
+  ParsedContractEvent,
+  EscrowInitializedEvent,
+  FundsDepositedEvent,
+  ProofSubmittedEvent,
+  MilestoneReleasedEvent,
+  DisputeRaisedEvent,
+  DisputeResolvedEvent,
+  TimeoutRefundedEvent,
+  AstraFlowEvent,
 } from "./types.js";
