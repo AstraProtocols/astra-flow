@@ -9,6 +9,14 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export {
+  interpolateStream,
+  vestedAmount,
+  remainingAmount,
+  elapsedRatioBps,
+  projectStream,
+} from "./stream.js";
+export type { StreamSchedule, AccruedBalance } from "./stream.js";
 export { SignatureAggregator, cloneTransaction, transactionHashHex } from "./multisig.js";
 export type { CollectedSignature, Signer } from "./multisig.js";
 export { FeeEstimator, createFeeEstimator, extractResources } from "./gas.js";
