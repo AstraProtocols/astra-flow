@@ -1,3 +1,14 @@
+export {
+  AstraFlowError,
+  SimulationError,
+  TransactionFailedError,
+  AuthExpiredError,
+  parseDiagnostics,
+  decodeContractErrorCode,
+  assertSimulationSuccess,
+  classifySendResult,
+} from "./errors.js";
+export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
 export { EscrowClient, AstraFlowClient, createEscrowClient, createAstraFlowClient } from "./client.js";
 export type { EscrowClientOptions, BuiltInvocation } from "./client.js";
 export { decodeContractEvents, parseAstraFlowEvent, ContractEventWatcher } from "./events.js";
