@@ -10,6 +10,7 @@ mod math;
 mod milestone;
 mod multisig;
 mod penalty;
+mod reentrancy;
 mod storage;
 mod token;
 mod ttl;
@@ -146,7 +147,7 @@ impl EscrowContract {
     /// Pull the funder's pre-approved token allowance into the contract balance.
     pub fn deposit_funds(env: Env) -> Result<(), Error> {
         Self::assert_not_paused(&env)?;
-        token::deposit_funds(&env)
+        reentrancy::with_guard(&env, || token::deposit_funds(&env))
     }
 
     /// Recipient submits an off-chain proof hash for a pending milestone.
@@ -192,10 +193,7 @@ impl EscrowContract {
     /// Funder or arbitrator signs off on a milestone and releases its payout.
     pub fn approve_milestone(env: Env, milestone_id: u32) -> Result<(), Error> {
         Self::assert_not_paused(&env)?;
-        storage::enter_guard(&env)?;
-        let result = Self::approve_milestone_inner(&env, milestone_id);
-        storage::exit_guard(&env);
-        result
+        reentrancy::with_guard(&env, || Self::approve_milestone_inner(&env, milestone_id))
     }
 
     /// Freeze unreleased milestone balances until the arbitrator resolves.
@@ -232,80 +230,15 @@ impl EscrowContract {
     /// `funder_bps` and `recipient_bps` are basis points and must sum to 10_000.
     pub fn resolve_dispute(env: Env, funder_bps: u32, recipient_bps: u32) -> Result<(), Error> {
         Self::assert_not_paused(&env)?;
-        let config = storage::get_config(&env)?;
-        access::require_arbitrator(&env)?;
-
-        if storage::get_state(&env)? != EscrowState::Disputed {
-            return Err(Error::BadState);
-        }
-        math::require_full_bps(funder_bps, recipient_bps)?;
-
-        let mut dispute = storage::get_dispute(&env)?;
-        if dispute.resolved {
-            return Err(Error::AlreadyPaid);
-        }
-
-        let locked = storage::get_balances(&env).locked();
-        let (funder_amt, recip_amt) = math::split_amount(locked, funder_bps, recipient_bps)?;
-
-        if funder_amt > 0 {
-            token::transfer_to(&env, &config.funder, funder_amt)?;
-            token::credit_refunded(&env, funder_amt)?;
-        }
-        if recip_amt > 0 {
-            token::transfer_to(&env, &config.recipient, recip_amt)?;
-            token::credit_released(&env, recip_amt)?;
-        }
-
-        dispute.funder_bps = funder_bps;
-        dispute.recip_bps = recipient_bps;
-        dispute.resolved = true;
-        storage::set_dispute(&env, &dispute);
-        storage::set_state(&env, &EscrowState::Completed);
-
-        events::emit_dispute_settled(
-            &env,
-            config.arbitrator,
-            funder_bps,
-            recipient_bps,
-            funder_amt,
-            recip_amt,
-        );
-
-        Ok(())
+        reentrancy::with_guard(&env, || {
+            Self::resolve_dispute_inner(&env, funder_bps, recipient_bps)
+        })
     }
 
     /// Funder recovers remaining locked tokens after the proof lock window elapses.
     pub fn claim_timeout_refund(env: Env) -> Result<(), Error> {
         Self::assert_not_paused(&env)?;
-        let config = storage::get_config(&env)?;
-        access::require_funder(&env)?;
-
-        let state = storage::get_state(&env)?;
-        if state != EscrowState::Active {
-            return Err(Error::BadState);
-        }
-
-        let now = env.ledger().timestamp();
-        let unlock_at = storage::get_lock_until(&env);
-        if now < unlock_at {
-            return Err(Error::DeadlineNotExceeded);
-        }
-
-        let locked = storage::get_balances(&env).locked();
-        let reserved = vesting::unstreamed_obligation(&env)?;
-        let refund = locked.checked_sub(reserved).ok_or(Error::BadAmount)?;
-        if refund <= 0 {
-            return Err(Error::NoDeposit);
-        }
-
-        token::transfer_to(&env, &config.funder, refund)?;
-        token::credit_refunded(&env, refund)?;
-        storage::set_state(&env, &EscrowState::Cancelled);
-
-        events::emit_timeout_refunded(&env, config.funder, refund, now);
-
-        Ok(())
+        reentrancy::with_guard(&env, || Self::claim_timeout_refund_inner(&env))
     }
 
     /// Governance circuit-breaker. Freezes deposits, proofs, releases, disputes,
@@ -380,7 +313,7 @@ impl EscrowContract {
 
     /// Recipient withdraws the linear vested delta for an approved streaming milestone.
     pub fn stream_milestone_payout(env: Env, milestone_id: u32) -> Result<i128, Error> {
-        vesting::stream_milestone_payout(&env, milestone_id)
+        reentrancy::with_guard(&env, || vesting::stream_milestone_payout(&env, milestone_id))
     }
 
     /// Dual-party update of the M-of-N arbitrator committee.
@@ -399,7 +332,9 @@ impl EscrowContract {
         recipient_bps: u32,
         signers: Vec<Address>,
     ) -> Result<(), Error> {
-        multisig::settle_with_quorum(&env, funder_bps, recipient_bps, signers)
+        reentrancy::with_guard(&env, || {
+            multisig::settle_with_quorum(&env, funder_bps, recipient_bps, signers)
+        })
     }
 
     pub fn get_arbitrators(env: Env) -> Result<ArbitratorSet, Error> {
@@ -411,7 +346,7 @@ impl EscrowContract {
     }
 
     pub fn apply_late_penalty(env: Env, milestone_id: u32) -> Result<i128, Error> {
-        penalty::apply_late_penalty(&env, milestone_id)
+        reentrancy::with_guard(&env, || penalty::apply_late_penalty(&env, milestone_id))
     }
 
     pub fn get_penalty_bps(env: Env) -> u32 {
@@ -447,6 +382,78 @@ impl EscrowContract {
 }
 
 impl EscrowContract {
+    fn resolve_dispute_inner(env: &Env, funder_bps: u32, recipient_bps: u32) -> Result<(), Error> {
+        let config = storage::get_config(env)?;
+        access::require_arbitrator(env)?;
+
+        if storage::get_state(env)? != EscrowState::Disputed {
+            return Err(Error::BadState);
+        }
+        math::require_full_bps(funder_bps, recipient_bps)?;
+
+        let mut dispute = storage::get_dispute(env)?;
+        if dispute.resolved {
+            return Err(Error::AlreadyPaid);
+        }
+
+        let locked = storage::get_balances(env).locked();
+        let (funder_amt, recip_amt) = math::split_amount(locked, funder_bps, recipient_bps)?;
+
+        if funder_amt > 0 {
+            token::transfer_to(env, &config.funder, funder_amt)?;
+            token::credit_refunded(env, funder_amt)?;
+        }
+        if recip_amt > 0 {
+            token::transfer_to(env, &config.recipient, recip_amt)?;
+            token::credit_released(env, recip_amt)?;
+        }
+
+        dispute.funder_bps = funder_bps;
+        dispute.recip_bps = recipient_bps;
+        dispute.resolved = true;
+        storage::set_dispute(env, &dispute);
+        storage::set_state(env, &EscrowState::Completed);
+
+        events::emit_dispute_settled(
+            env,
+            config.arbitrator,
+            funder_bps,
+            recipient_bps,
+            funder_amt,
+            recip_amt,
+        );
+        Ok(())
+    }
+
+    fn claim_timeout_refund_inner(env: &Env) -> Result<(), Error> {
+        let config = storage::get_config(env)?;
+        access::require_funder(env)?;
+
+        let state = storage::get_state(env)?;
+        if state != EscrowState::Active {
+            return Err(Error::BadState);
+        }
+
+        let now = env.ledger().timestamp();
+        let unlock_at = storage::get_lock_until(env);
+        if now < unlock_at {
+            return Err(Error::DeadlineNotExceeded);
+        }
+
+        let locked = storage::get_balances(env).locked();
+        let reserved = vesting::unstreamed_obligation(env)?;
+        let refund = locked.checked_sub(reserved).ok_or(Error::BadAmount)?;
+        if refund <= 0 {
+            return Err(Error::NoDeposit);
+        }
+
+        token::transfer_to(env, &config.funder, refund)?;
+        token::credit_refunded(env, refund)?;
+        storage::set_state(env, &EscrowState::Cancelled);
+        events::emit_timeout_refunded(env, config.funder, refund, now);
+        Ok(())
+    }
+
     fn approve_milestone_inner(env: &Env, milestone_id: u32) -> Result<(), Error> {
         let config = storage::get_config(env)?;
         access::require_releaser(env)?;
