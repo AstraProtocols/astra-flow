@@ -1,5 +1,6 @@
 use soroban_sdk::{token, Address, Env};
 
+use crate::access;
 use crate::events;
 use crate::storage::{self, BalanceBook, EscrowState};
 use crate::Error;
@@ -7,7 +8,7 @@ use crate::Error;
 /// Pull the funder's SEP-41 allowance into the escrow and credit the balance book.
 pub fn deposit_funds(env: &Env) -> Result<(), Error> {
     let config = storage::get_config(env)?;
-    config.funder.require_auth();
+    access::require_funder(env)?;
 
     let state = storage::get_state(env)?;
     if state != EscrowState::Pending {

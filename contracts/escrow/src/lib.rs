@@ -2,6 +2,7 @@
 
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 
+mod access;
 mod errors;
 mod events;
 mod math;
@@ -9,6 +10,10 @@ mod storage;
 mod token;
 mod ttl;
 
+pub use access::{
+    Role, require_actor, require_all, require_any_role, require_dual, require_emergency_admin,
+    require_quorum, require_releaser,
+};
 pub use errors::Error;
 pub use events::{
     DisputeRaised, DisputeSettled, EmergencyPaused, EscrowInitialized, MilestoneApproved,
@@ -137,7 +142,7 @@ impl EscrowContract {
         proof_hash: BytesN<32>,
     ) -> Result<(), Error> {
         let config = storage::get_config(&env)?;
-        config.recipient.require_auth();
+        access::require_recipient(&env)?;
         Self::assert_mutable(&env)?;
 
         let mut milestone = storage::get_milestone(&env, milestone_id)?;
@@ -180,7 +185,7 @@ impl EscrowContract {
     /// Freeze unreleased milestone balances until the arbitrator resolves.
     pub fn raise_dispute(env: Env) -> Result<(), Error> {
         let config = storage::get_config(&env)?;
-        config.funder.require_auth();
+        access::require_funder(&env)?;
 
         let state = storage::get_state(&env)?;
         if state != EscrowState::Active {
@@ -210,7 +215,7 @@ impl EscrowContract {
     /// `funder_bps` and `recipient_bps` are basis points and must sum to 10_000.
     pub fn resolve_dispute(env: Env, funder_bps: u32, recipient_bps: u32) -> Result<(), Error> {
         let config = storage::get_config(&env)?;
-        config.arbitrator.require_auth();
+        access::require_arbitrator(&env)?;
 
         if storage::get_state(&env)? != EscrowState::Disputed {
             return Err(Error::BadState);
@@ -255,7 +260,7 @@ impl EscrowContract {
     /// Funder recovers remaining locked tokens after the proof lock window elapses.
     pub fn claim_timeout_refund(env: Env) -> Result<(), Error> {
         let config = storage::get_config(&env)?;
-        config.funder.require_auth();
+        access::require_funder(&env)?;
 
         let state = storage::get_state(&env)?;
         if state != EscrowState::Active {
@@ -313,18 +318,7 @@ impl EscrowContract {
 impl EscrowContract {
     fn approve_milestone_inner(env: &Env, milestone_id: u32) -> Result<(), Error> {
         let config = storage::get_config(env)?;
-        let state = storage::get_state(env)?;
-
-        match state {
-            EscrowState::Active => {
-                // Funder is the primary releaser; arbitrator may also authorize while live.
-                config.funder.require_auth();
-            }
-            EscrowState::Disputed => {
-                config.arbitrator.require_auth();
-            }
-            _ => return Err(Error::BadState),
-        }
+        access::require_releaser(env)?;
 
         let book = storage::get_balances(env);
         if book.deposited == 0 {
@@ -347,7 +341,7 @@ impl EscrowContract {
         let approved_count = storage::increment_approved(env);
         if approved_count >= config.release_threshold {
             storage::set_state(env, &EscrowState::Completed);
-        } else if state == EscrowState::Disputed {
+        } else if storage::get_state(env)? == EscrowState::Disputed {
             storage::set_state(env, &EscrowState::Active);
         }
 
