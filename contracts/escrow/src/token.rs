@@ -29,7 +29,7 @@ pub fn deposit_funds(env: &Env) -> Result<(), Error> {
     let token_client = token::Client::new(env, &config.asset);
     let allowance = token_client.allowance(&config.funder, &env.current_contract_address());
     if allowance < config.total_amount {
-        return Err(Error::NoDeposit);
+        return Err(Error::InsufficientAllowance);
     }
 
     token_client.transfer_from(
@@ -60,9 +60,7 @@ pub fn deposit_funds(env: &Env) -> Result<(), Error> {
 }
 
 pub fn transfer_to(env: &Env, to: &Address, amount: i128) -> Result<(), Error> {
-    if amount <= 0 {
-        return Err(Error::BadAmount);
-    }
+    Error::from_amount(amount)?;
     let config = storage::get_config(env)?;
     let token_client = token::Client::new(env, &config.asset);
     token_client.transfer(&env.current_contract_address(), to, &amount);

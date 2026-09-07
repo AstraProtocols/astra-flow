@@ -1,40 +1,18 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, Address, BytesN, Env, Vec,
-};
+use soroban_sdk::{contract, contractevent, contractimpl, Address, BytesN, Env, Vec};
 
+mod errors;
 mod storage;
 mod token;
 
+pub use errors::Error;
 pub use storage::{
     BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
 };
 
 #[cfg(test)]
 mod test;
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    AlreadyInit = 1,
-    NotInit = 2,
-    Unauthorized = 3,
-    BadState = 4,
-    NotFound = 5,
-    AlreadyPaid = 6,
-    NoDeposit = 7,
-    Locked = 8,
-    BadAmount = 9,
-    DupId = 10,
-    BadToken = 11,
-    BadRoles = 12,
-    BadSequence = 13,
-    AlreadySubmitted = 14,
-    BadSplit = 15,
-    TooEarly = 16,
-}
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,7 +97,7 @@ impl EscrowContract {
         token::assert_sep41_token(&env, &token)?;
 
         if milestones.is_empty() {
-            return Err(Error::BadAmount);
+            return Err(Error::ZeroAmountAllocated);
         }
 
         let mut total: i128 = 0;
@@ -128,13 +106,13 @@ impl EscrowContract {
 
         for milestone in milestones.iter() {
             if milestone.milestone_id != expected_id {
-                return Err(Error::BadSequence);
+                return Err(Error::InvalidMilestoneSequence);
             }
-            expected_id = expected_id.checked_add(1).ok_or(Error::BadSequence)?;
+            expected_id = expected_id
+                .checked_add(1)
+                .ok_or(Error::InvalidMilestoneSequence)?;
 
-            if milestone.payout_amount <= 0 {
-                return Err(Error::BadAmount);
-            }
+            Error::from_amount(milestone.payout_amount)?;
             ids.push_back(milestone.milestone_id);
             total = total
                 .checked_add(milestone.payout_amount)
@@ -201,7 +179,7 @@ impl EscrowContract {
 
         let mut milestone = storage::get_milestone(&env, milestone_id)?;
         if milestone.is_approved || milestone.status == MilestoneStatus::Released {
-            return Err(Error::AlreadyPaid);
+            return Err(Error::MilestoneAlreadyCompleted);
         }
         if milestone.status == MilestoneStatus::UnderReview {
             return Err(Error::AlreadySubmitted);
@@ -337,7 +315,7 @@ impl EscrowContract {
         let now = env.ledger().timestamp();
         let unlock_at = storage::get_lock_until(&env);
         if now < unlock_at {
-            return Err(Error::TooEarly);
+            return Err(Error::DeadlineNotExceeded);
         }
 
         let refund = storage::get_balances(&env).locked();
@@ -410,7 +388,7 @@ impl EscrowContract {
 
         let mut milestone = storage::get_milestone(env, milestone_id)?;
         if milestone.is_approved || milestone.status == MilestoneStatus::Released {
-            return Err(Error::AlreadyPaid);
+            return Err(Error::MilestoneAlreadyCompleted);
         }
 
         token::transfer_to(env, &config.recipient, milestone.payout_amount)?;
@@ -456,7 +434,10 @@ impl EscrowContract {
         arbitrator: &Address,
         token: &Address,
     ) -> Result<(), Error> {
-        if funder == recipient || funder == arbitrator || recipient == arbitrator {
+        if funder == arbitrator || recipient == arbitrator {
+            return Err(Error::ArbitratorCollision);
+        }
+        if funder == recipient {
             return Err(Error::BadRoles);
         }
         if token == funder || token == recipient || token == arbitrator {
@@ -468,8 +449,8 @@ impl EscrowContract {
     fn assert_mutable(env: &Env) -> Result<(), Error> {
         match storage::get_state(env)? {
             EscrowState::Active => Ok(()),
-            EscrowState::Disputed => Err(Error::Locked),
-            _ => Err(Error::BadState),
+            EscrowState::Disputed => Err(Error::DisputeLockActive),
+            _ => Err(Error::from_mutability(false)),
         }
     }
 }
