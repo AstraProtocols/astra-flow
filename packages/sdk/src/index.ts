@@ -9,6 +9,8 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export { LruCache, contractStateKey } from "./cache.js";
+export type { CacheEntry, LruCacheOptions } from "./cache.js";
 export {
   sha256,
   sha256Sync,
