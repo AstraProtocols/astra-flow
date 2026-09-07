@@ -31,6 +31,7 @@ pub enum DataKey {
     Amendment,
     Evidence,
     Arbitrators,
+    PenaltyBps,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -69,6 +70,8 @@ pub struct Milestone {
     pub submitted_at: u64,
     pub vesting_secs: u64,
     pub streamed: i128,
+    pub deadline: u64,
+    pub late_penalty_applied: bool,
 }
 
 /// Parties, asset, and release policy for the escrow.
@@ -382,4 +385,18 @@ pub fn get_arbitrators(env: &Env) -> Result<ArbitratorSet, Error> {
         .persistent()
         .get(&DataKey::Arbitrators)
         .ok_or(Error::NotInit)
+}
+
+pub const DEFAULT_PENALTY_BPS: u32 = 500;
+
+pub fn set_penalty_bps(env: &Env, bps: u32) {
+    env.storage().instance().set(&DataKey::PenaltyBps, &bps);
+    bump_instance(env);
+}
+
+pub fn get_penalty_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PenaltyBps)
+        .unwrap_or(DEFAULT_PENALTY_BPS)
 }

@@ -24,6 +24,8 @@ fn sample_milestone(env: &Env, id: u32, amount: i128, seed: u8) -> Milestone {
         submitted_at: 0,
         vesting_secs: 0,
         streamed: 0,
+        deadline: 0,
+        late_penalty_applied: false,
     }
 }
 

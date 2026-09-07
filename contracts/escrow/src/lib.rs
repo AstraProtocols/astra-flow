@@ -9,6 +9,7 @@ mod events;
 mod math;
 mod milestone;
 mod multisig;
+mod penalty;
 mod storage;
 mod token;
 mod ttl;
@@ -96,6 +97,8 @@ impl EscrowContract {
                     submitted_at: 0,
                     vesting_secs: milestone.vesting_secs,
                     streamed: 0,
+                    deadline: milestone.deadline,
+                    late_penalty_applied: false,
                 },
             );
             events::emit_milestone_created(
@@ -124,6 +127,7 @@ impl EscrowContract {
         storage::set_approved_count(&env, 0);
         storage::set_paused(&env, false);
         storage::set_arbitrators(&env, &multisig::default_set(&env, arbitrator.clone()));
+        storage::set_penalty_bps(&env, storage::DEFAULT_PENALTY_BPS);
 
         events::emit_initialized(
             &env,
@@ -400,6 +404,18 @@ impl EscrowContract {
 
     pub fn get_arbitrators(env: Env) -> Result<ArbitratorSet, Error> {
         storage::get_arbitrators(&env)
+    }
+
+    pub fn set_late_penalty_bps(env: Env, bps: u32) -> Result<u32, Error> {
+        penalty::set_late_penalty_bps(&env, bps)
+    }
+
+    pub fn apply_late_penalty(env: Env, milestone_id: u32) -> Result<i128, Error> {
+        penalty::apply_late_penalty(&env, milestone_id)
+    }
+
+    pub fn get_penalty_bps(env: Env) -> u32 {
+        storage::get_penalty_bps(&env)
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
