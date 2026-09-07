@@ -4,6 +4,7 @@ use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 
 mod errors;
 mod events;
+mod math;
 mod storage;
 mod token;
 
@@ -11,6 +12,10 @@ pub use errors::Error;
 pub use events::{
     DisputeRaised, DisputeSettled, EmergencyPaused, EscrowInitialized, MilestoneApproved,
     MilestoneCreated, MilestoneSubmitted,
+};
+pub use math::{
+    apply_bps, apply_penalty, floor_div, protocol_fee, ratio_share, split_amount, vested_amount,
+    BPS_SCALE, BPS_SCALE_I128,
 };
 pub use storage::{
     BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
@@ -203,13 +208,7 @@ impl EscrowContract {
         if storage::get_state(&env)? != EscrowState::Disputed {
             return Err(Error::BadState);
         }
-        if funder_bps
-            .checked_add(recipient_bps)
-            .ok_or(Error::BadSplit)?
-            != 10_000
-        {
-            return Err(Error::BadSplit);
-        }
+        math::require_full_bps(funder_bps, recipient_bps)?;
 
         let mut dispute = storage::get_dispute(&env)?;
         if dispute.resolved {
@@ -217,11 +216,7 @@ impl EscrowContract {
         }
 
         let locked = storage::get_balances(&env).locked();
-        let funder_amt = locked
-            .checked_mul(i128::from(funder_bps))
-            .ok_or(Error::BadAmount)?
-            / 10_000;
-        let recip_amt = locked - funder_amt;
+        let (funder_amt, recip_amt) = math::split_amount(locked, funder_bps, recipient_bps)?;
 
         if funder_amt > 0 {
             token::transfer_to(&env, &config.funder, funder_amt)?;
