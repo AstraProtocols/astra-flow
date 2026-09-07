@@ -27,6 +27,7 @@ pub enum DataKey {
     LockUntil,
     Dispute,
     Guard,
+    Paused,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -289,4 +290,16 @@ pub fn get_lock_until(env: &Env) -> u64 {
         .instance()
         .get(&DataKey::LockUntil)
         .unwrap_or(0)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+    bump_instance(env);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
 }

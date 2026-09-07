@@ -115,6 +115,7 @@ impl EscrowContract {
         storage::set_balances(&env, &BalanceBook::empty());
         storage::set_milestone_ids(&env, &ids);
         storage::set_approved_count(&env, 0);
+        storage::set_paused(&env, false);
 
         events::emit_initialized(
             &env,
@@ -132,6 +133,7 @@ impl EscrowContract {
 
     /// Pull the funder's pre-approved token allowance into the contract balance.
     pub fn deposit_funds(env: Env) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
         token::deposit_funds(&env)
     }
 
@@ -143,6 +145,7 @@ impl EscrowContract {
     ) -> Result<(), Error> {
         let config = storage::get_config(&env)?;
         access::require_recipient(&env)?;
+        Self::assert_not_paused(&env)?;
         Self::assert_mutable(&env)?;
 
         let mut milestone = storage::get_milestone(&env, milestone_id)?;
@@ -176,6 +179,7 @@ impl EscrowContract {
 
     /// Funder or arbitrator signs off on a milestone and releases its payout.
     pub fn approve_milestone(env: Env, milestone_id: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
         storage::enter_guard(&env)?;
         let result = Self::approve_milestone_inner(&env, milestone_id);
         storage::exit_guard(&env);
@@ -184,6 +188,7 @@ impl EscrowContract {
 
     /// Freeze unreleased milestone balances until the arbitrator resolves.
     pub fn raise_dispute(env: Env) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
         let config = storage::get_config(&env)?;
         access::require_funder(&env)?;
 
@@ -214,6 +219,7 @@ impl EscrowContract {
     /// Arbitrator splits remaining locked tokens between funder and recipient.
     /// `funder_bps` and `recipient_bps` are basis points and must sum to 10_000.
     pub fn resolve_dispute(env: Env, funder_bps: u32, recipient_bps: u32) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
         let config = storage::get_config(&env)?;
         access::require_arbitrator(&env)?;
 
@@ -259,6 +265,7 @@ impl EscrowContract {
 
     /// Funder recovers remaining locked tokens after the proof lock window elapses.
     pub fn claim_timeout_refund(env: Env) -> Result<(), Error> {
+        Self::assert_not_paused(&env)?;
         let config = storage::get_config(&env)?;
         access::require_funder(&env)?;
 
@@ -285,6 +292,35 @@ impl EscrowContract {
         events::emit_timeout_refunded(&env, config.funder, refund, now);
 
         Ok(())
+    }
+
+    /// Governance circuit-breaker. Freezes deposits, proofs, releases, disputes,
+    /// and refunds until `emergency_unpause`. Read getters remain available.
+    pub fn emergency_pause(env: Env) -> Result<(), Error> {
+        let admin = access::require_emergency_admin(&env)?;
+        if storage::is_paused(&env) {
+            return Err(Error::Paused);
+        }
+        storage::set_paused(&env, true);
+        events::emit_emergency_paused(&env, admin, true, env.ledger().timestamp());
+        ttl::extend_instance(&env);
+        Ok(())
+    }
+
+    /// Restore mutating entrypoints after an emergency freeze.
+    pub fn emergency_unpause(env: Env) -> Result<(), Error> {
+        let admin = access::require_emergency_admin(&env)?;
+        if !storage::is_paused(&env) {
+            return Err(Error::BadState);
+        }
+        storage::set_paused(&env, false);
+        events::emit_emergency_paused(&env, admin, false, env.ledger().timestamp());
+        ttl::extend_instance(&env);
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        storage::is_paused(&env)
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
@@ -383,6 +419,14 @@ impl EscrowContract {
             return Err(Error::BadToken);
         }
         Ok(())
+    }
+
+    fn assert_not_paused(env: &Env) -> Result<(), Error> {
+        if storage::is_paused(env) {
+            Err(Error::Paused)
+        } else {
+            Ok(())
+        }
     }
 
     fn assert_mutable(env: &Env) -> Result<(), Error> {
