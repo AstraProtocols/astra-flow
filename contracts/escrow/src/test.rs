@@ -22,6 +22,8 @@ fn sample_milestone(env: &Env, id: u32, amount: i128, seed: u8) -> Milestone {
         completed_at: 0,
         status: MilestoneStatus::Pending,
         submitted_at: 0,
+        vesting_secs: 0,
+        streamed: 0,
     }
 }
 

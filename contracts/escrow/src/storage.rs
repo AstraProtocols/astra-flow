@@ -66,6 +66,8 @@ pub struct Milestone {
     pub completed_at: u64,
     pub status: MilestoneStatus,
     pub submitted_at: u64,
+    pub vesting_secs: u64,
+    pub streamed: i128,
 }
 
 /// Parties, asset, and release policy for the escrow.

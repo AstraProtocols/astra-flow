@@ -11,6 +11,7 @@ mod milestone;
 mod storage;
 mod token;
 mod ttl;
+mod vesting;
 
 pub use access::{
     Role, require_actor, require_all, require_any_role, require_dual, require_emergency_admin,
@@ -92,6 +93,8 @@ impl EscrowContract {
                     completed_at: 0,
                     status: MilestoneStatus::Pending,
                     submitted_at: 0,
+                    vesting_secs: milestone.vesting_secs,
+                    streamed: 0,
                 },
             );
             events::emit_milestone_created(
@@ -283,7 +286,9 @@ impl EscrowContract {
             return Err(Error::DeadlineNotExceeded);
         }
 
-        let refund = storage::get_balances(&env).locked();
+        let locked = storage::get_balances(&env).locked();
+        let reserved = vesting::unstreamed_obligation(&env)?;
+        let refund = locked.checked_sub(reserved).ok_or(Error::BadAmount)?;
         if refund <= 0 {
             return Err(Error::NoDeposit);
         }
@@ -367,6 +372,11 @@ impl EscrowContract {
         storage::get_evidence(&env)
     }
 
+    /// Recipient withdraws the linear vested delta for an approved streaming milestone.
+    pub fn stream_milestone_payout(env: Env, milestone_id: u32) -> Result<i128, Error> {
+        vesting::stream_milestone_payout(&env, milestone_id)
+    }
+
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
         storage::get_config(&env)
     }
@@ -410,13 +420,19 @@ impl EscrowContract {
             return Err(Error::MilestoneAlreadyCompleted);
         }
 
-        token::transfer_to(env, &config.recipient, milestone.payout_amount)?;
-
         milestone.is_approved = true;
-        milestone.status = MilestoneStatus::Released;
         milestone.completed_at = env.ledger().timestamp();
-        storage::set_milestone(env, &milestone);
-        token::credit_released(env, milestone.payout_amount)?;
+        if vesting::is_streaming(milestone.vesting_secs) {
+            milestone.status = MilestoneStatus::UnderReview;
+            milestone.streamed = 0;
+            storage::set_milestone(env, &milestone);
+        } else {
+            token::transfer_to(env, &config.recipient, milestone.payout_amount)?;
+            milestone.status = MilestoneStatus::Released;
+            milestone.streamed = milestone.payout_amount;
+            storage::set_milestone(env, &milestone);
+            token::credit_released(env, milestone.payout_amount)?;
+        }
 
         let approved_count = storage::increment_approved(env);
         if approved_count >= config.release_threshold {
