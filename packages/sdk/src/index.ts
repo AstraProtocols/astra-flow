@@ -9,6 +9,8 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export { withExponentialBackoff, isTransientError, ResilientRpcClient, createResilientRpcClient } from "./retry.js";
+export type { RetryOptions, RpcTransport } from "./retry.js";
 export { LruCache, contractStateKey } from "./cache.js";
 export type { CacheEntry, LruCacheOptions } from "./cache.js";
 export {
