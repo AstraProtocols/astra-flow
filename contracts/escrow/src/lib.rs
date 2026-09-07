@@ -43,6 +43,8 @@ pub use ttl::{
 mod test;
 #[cfg(test)]
 mod test_disputes;
+#[cfg(test)]
+mod test_fuzz;
 
 #[contract]
 pub struct EscrowContract;
