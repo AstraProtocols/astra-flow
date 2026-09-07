@@ -1,77 +1,23 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractevent, contractimpl, Address, BytesN, Env, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 
 mod errors;
+mod events;
 mod storage;
 mod token;
 
 pub use errors::Error;
+pub use events::{
+    DisputeRaised, DisputeSettled, EmergencyPaused, EscrowInitialized, MilestoneApproved,
+    MilestoneCreated, MilestoneSubmitted,
+};
 pub use storage::{
     BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
 };
 
 #[cfg(test)]
 mod test;
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EscrowInitialized {
-    #[topic]
-    pub funder: Address,
-    pub recipient: Address,
-    pub arbitrator: Address,
-    pub token: Address,
-    pub total: i128,
-    pub count: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProofSubmitted {
-    #[topic]
-    pub milestone: u32,
-    pub recipient: Address,
-    pub proof: BytesN<32>,
-    pub at: u64,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MilestoneReleased {
-    #[topic]
-    pub milestone: u32,
-    pub recipient: Address,
-    pub amount: i128,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeRaised {
-    #[topic]
-    pub raised_by: Address,
-    pub at: u64,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DisputeResolved {
-    #[topic]
-    pub arbitrator: Address,
-    pub funder_bps: u32,
-    pub recip_bps: u32,
-    pub funder_amt: i128,
-    pub recip_amt: i128,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TimeoutRefunded {
-    #[topic]
-    pub funder: Address,
-    pub amount: i128,
-    pub at: u64,
-}
 
 #[contract]
 pub struct EscrowContract;
@@ -123,12 +69,18 @@ impl EscrowContract {
                 &Milestone {
                     milestone_id: milestone.milestone_id,
                     payout_amount: milestone.payout_amount,
-                    description_hash: milestone.description_hash,
+                    description_hash: milestone.description_hash.clone(),
                     is_approved: false,
                     completed_at: 0,
                     status: MilestoneStatus::Pending,
                     submitted_at: 0,
                 },
+            );
+            events::emit_milestone_created(
+                &env,
+                milestone.milestone_id,
+                milestone.payout_amount,
+                milestone.description_hash,
             );
         }
 
@@ -149,15 +101,15 @@ impl EscrowContract {
         storage::set_milestone_ids(&env, &ids);
         storage::set_approved_count(&env, 0);
 
-        EscrowInitialized {
-            funder: funder.clone(),
+        events::emit_initialized(
+            &env,
+            funder,
             recipient,
             arbitrator,
             token,
             total,
-            count: ids.len() as u32,
-        }
-        .publish(&env);
+            ids.len() as u32,
+        );
 
         Ok(())
     }
@@ -194,13 +146,13 @@ impl EscrowContract {
         storage::set_milestone(&env, &milestone);
         storage::set_proof(&env, milestone_id, &proof_hash);
 
-        ProofSubmitted {
-            milestone: milestone_id,
-            recipient: config.recipient,
-            proof: proof_hash,
-            at: submitted_at,
-        }
-        .publish(&env);
+        events::emit_milestone_submitted(
+            &env,
+            milestone_id,
+            config.recipient,
+            proof_hash,
+            submitted_at,
+        );
 
         Ok(())
     }
@@ -237,11 +189,7 @@ impl EscrowContract {
         Self::mark_open_milestones_disputed(&env)?;
         storage::set_state(&env, &EscrowState::Disputed);
 
-        DisputeRaised {
-            raised_by: config.funder,
-            at: now,
-        }
-        .publish(&env);
+        events::emit_dispute_raised(&env, config.funder, now);
 
         Ok(())
     }
@@ -290,14 +238,14 @@ impl EscrowContract {
         storage::set_dispute(&env, &dispute);
         storage::set_state(&env, &EscrowState::Completed);
 
-        DisputeResolved {
-            arbitrator: config.arbitrator,
+        events::emit_dispute_settled(
+            &env,
+            config.arbitrator,
             funder_bps,
-            recip_bps: recipient_bps,
+            recipient_bps,
             funder_amt,
             recip_amt,
-        }
-        .publish(&env);
+        );
 
         Ok(())
     }
@@ -327,12 +275,7 @@ impl EscrowContract {
         token::credit_refunded(&env, refund)?;
         storage::set_state(&env, &EscrowState::Cancelled);
 
-        TimeoutRefunded {
-            funder: config.funder,
-            amount: refund,
-            at: now,
-        }
-        .publish(&env);
+        events::emit_timeout_refunded(&env, config.funder, refund, now);
 
         Ok(())
     }
@@ -406,12 +349,12 @@ impl EscrowContract {
             storage::set_state(env, &EscrowState::Active);
         }
 
-        MilestoneReleased {
-            milestone: milestone_id,
-            recipient: config.recipient,
-            amount: milestone.payout_amount,
-        }
-        .publish(env);
+        events::emit_milestone_approved(
+            env,
+            milestone_id,
+            config.recipient,
+            milestone.payout_amount,
+        );
 
         Ok(())
     }

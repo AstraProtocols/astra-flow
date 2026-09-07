@@ -1,15 +1,8 @@
-use soroban_sdk::{contractevent, token, Address, Env};
+use soroban_sdk::{token, Address, Env};
 
+use crate::events;
 use crate::storage::{self, BalanceBook, EscrowState};
 use crate::Error;
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FundsDeposited {
-    #[topic]
-    pub funder: Address,
-    pub amount: i128,
-}
 
 /// Pull the funder's SEP-41 allowance into the escrow and credit the balance book.
 pub fn deposit_funds(env: &Env) -> Result<(), Error> {
@@ -50,11 +43,7 @@ pub fn deposit_funds(env: &Env) -> Result<(), Error> {
     let unlock_at = env.ledger().timestamp().saturating_add(config.lock_secs);
     storage::set_lock_until(env, unlock_at);
 
-    FundsDeposited {
-        funder: config.funder.clone(),
-        amount: config.total_amount,
-    }
-    .publish(env);
+    events::emit_funds_deposited(env, config.funder.clone(), config.total_amount);
 
     Ok(())
 }
