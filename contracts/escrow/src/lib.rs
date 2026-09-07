@@ -3,6 +3,7 @@
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
 
 mod access;
+mod dispute;
 mod errors;
 mod events;
 mod math;
@@ -25,8 +26,8 @@ pub use math::{
     BPS_SCALE, BPS_SCALE_I128,
 };
 pub use storage::{
-    Amendment, BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone,
-    MilestoneStatus,
+    Amendment, BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, EvidenceEntry,
+    Milestone, MilestoneStatus,
 };
 pub use ttl::{
     extend_all_persistent, extend_instance, extend_on_initialize, extend_on_proof_submitted,
@@ -351,6 +352,19 @@ impl EscrowContract {
 
     pub fn get_amendment(env: Env) -> Result<Amendment, Error> {
         storage::get_amendment(&env)
+    }
+
+    /// Funder or recipient appends a content hash to the open dispute docket.
+    pub fn append_dispute_evidence(
+        env: Env,
+        actor: Address,
+        content_hash: BytesN<32>,
+    ) -> Result<u32, Error> {
+        dispute::append_dispute_evidence(&env, actor, content_hash)
+    }
+
+    pub fn get_evidence(env: Env) -> soroban_sdk::Vec<EvidenceEntry> {
+        storage::get_evidence(&env)
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {

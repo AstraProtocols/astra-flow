@@ -29,6 +29,7 @@ pub enum DataKey {
     Guard,
     Paused,
     Amendment,
+    Evidence,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -111,6 +112,15 @@ pub struct DisputeRecord {
     pub funder_bps: u32,
     pub recip_bps: u32,
     pub resolved: bool,
+}
+
+/// Cryptographic content hash submitted during an open dispute window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceEntry {
+    pub submitter: Address,
+    pub content_hash: BytesN<32>,
+    pub submitted_at: u64,
 }
 
 impl BalanceBook {
@@ -333,4 +343,19 @@ pub fn get_amendment(env: &Env) -> Result<Amendment, Error> {
 
 pub fn clear_amendment(env: &Env) {
     env.storage().persistent().remove(&DataKey::Amendment);
+}
+
+pub const MAX_EVIDENCE: u32 = 32;
+
+pub fn set_evidence(env: &Env, entries: &Vec<EvidenceEntry>) {
+    let key = DataKey::Evidence;
+    env.storage().persistent().set(&key, entries);
+    bump_persistent(env, &key);
+}
+
+pub fn get_evidence(env: &Env) -> Vec<EvidenceEntry> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Evidence)
+        .unwrap_or_else(|| Vec::new(env))
 }
