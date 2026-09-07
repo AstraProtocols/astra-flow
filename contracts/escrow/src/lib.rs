@@ -6,6 +6,7 @@ mod access;
 mod dispute;
 mod errors;
 mod events;
+mod fees;
 mod math;
 mod milestone;
 mod multisig;
@@ -129,6 +130,8 @@ impl EscrowContract {
         storage::set_paused(&env, false);
         storage::set_arbitrators(&env, &multisig::default_set(&env, arbitrator.clone()));
         storage::set_penalty_bps(&env, storage::DEFAULT_PENALTY_BPS);
+        storage::set_treasury(&env, &funder);
+        storage::set_fee_bps(&env, 0);
 
         events::emit_initialized(
             &env,
@@ -353,6 +356,22 @@ impl EscrowContract {
         storage::get_penalty_bps(&env)
     }
 
+    pub fn configure_protocol_fee(
+        env: Env,
+        treasury: Address,
+        fee_bps: u32,
+    ) -> Result<(), Error> {
+        fees::configure_protocol_fee(&env, treasury, fee_bps)
+    }
+
+    pub fn get_protocol_fee_bps(env: Env) -> u32 {
+        storage::get_fee_bps(&env)
+    }
+
+    pub fn get_treasury(env: Env) -> Result<Address, Error> {
+        storage::get_treasury(&env)
+    }
+
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
         storage::get_config(&env)
     }
@@ -475,11 +494,10 @@ impl EscrowContract {
             milestone.streamed = 0;
             storage::set_milestone(env, &milestone);
         } else {
-            token::transfer_to(env, &config.recipient, milestone.payout_amount)?;
+            fees::pay_with_fee(env, &config.recipient, milestone.payout_amount)?;
             milestone.status = MilestoneStatus::Released;
             milestone.streamed = milestone.payout_amount;
             storage::set_milestone(env, &milestone);
-            token::credit_released(env, milestone.payout_amount)?;
         }
 
         let approved_count = storage::increment_approved(env);

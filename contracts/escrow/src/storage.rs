@@ -32,6 +32,8 @@ pub enum DataKey {
     Evidence,
     Arbitrators,
     PenaltyBps,
+    Treasury,
+    FeeBps,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -399,4 +401,25 @@ pub fn get_penalty_bps(env: &Env) -> u32 {
         .instance()
         .get(&DataKey::PenaltyBps)
         .unwrap_or(DEFAULT_PENALTY_BPS)
+}
+
+pub fn set_treasury(env: &Env, treasury: &Address) {
+    env.storage().instance().set(&DataKey::Treasury, treasury);
+    bump_instance(env);
+}
+
+pub fn get_treasury(env: &Env) -> Result<Address, Error> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Treasury)
+        .ok_or(Error::NotInit)
+}
+
+pub fn set_fee_bps(env: &Env, bps: u32) {
+    env.storage().instance().set(&DataKey::FeeBps, &bps);
+    bump_instance(env);
+}
+
+pub fn get_fee_bps(env: &Env) -> u32 {
+    env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
 }

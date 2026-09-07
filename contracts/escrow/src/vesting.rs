@@ -3,7 +3,6 @@ use soroban_sdk::Env;
 use crate::access;
 use crate::math;
 use crate::storage::{self, EscrowState, MilestoneStatus};
-use crate::token;
 use crate::Error;
 
 /// Pull the newly vested portion of an approved milestone to the recipient.
@@ -52,8 +51,7 @@ pub fn stream_milestone_payout(env: &Env, milestone_id: u32) -> Result<i128, Err
         return Err(Error::VestingIncomplete);
     }
 
-    token::transfer_to(env, &config.recipient, unpaid)?;
-    token::credit_released(env, unpaid)?;
+    crate::fees::pay_with_fee(env, &config.recipient, unpaid)?;
     milestone.streamed = milestone
         .streamed
         .checked_add(unpaid)
