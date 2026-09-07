@@ -9,6 +9,8 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export { SignatureAggregator, cloneTransaction, transactionHashHex } from "./multisig.js";
+export type { CollectedSignature, Signer } from "./multisig.js";
 export { FeeEstimator, createFeeEstimator, extractResources } from "./gas.js";
 export type { ResourceEstimate, FeeEstimatorOptions } from "./gas.js";
 export {
