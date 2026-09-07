@@ -10,6 +10,18 @@ export {
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
 export {
+  sha256,
+  sha256Sync,
+  sha256Hex,
+  sha256HexSync,
+  hashProofAsset,
+  hashMilestoneDocument,
+  verifyHash,
+  assertSha256Hex,
+  timingSafeEqual,
+} from "./crypto.js";
+export type { HashInput } from "./crypto.js";
+export {
   interpolateStream,
   vestedAmount,
   remainingAmount,
