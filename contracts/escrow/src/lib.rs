@@ -7,6 +7,7 @@ mod events;
 mod math;
 mod storage;
 mod token;
+mod ttl;
 
 pub use errors::Error;
 pub use events::{
@@ -19,6 +20,10 @@ pub use math::{
 };
 pub use storage::{
     BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
+};
+pub use ttl::{
+    extend_all_persistent, extend_instance, extend_on_initialize, extend_on_proof_submitted,
+    extend_persistent,
 };
 
 #[cfg(test)]
@@ -115,6 +120,7 @@ impl EscrowContract {
             total,
             ids.len() as u32,
         );
+        ttl::extend_on_initialize(&env);
 
         Ok(())
     }
@@ -158,6 +164,7 @@ impl EscrowContract {
             proof_hash,
             submitted_at,
         );
+        ttl::extend_on_proof_submitted(&env, milestone_id);
 
         Ok(())
     }
