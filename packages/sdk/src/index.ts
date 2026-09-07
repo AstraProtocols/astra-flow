@@ -9,6 +9,14 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export {
+  parseContractEvents,
+  parseRawEvent,
+  deserializeTopics,
+  deserializeValue,
+  toDomainEvent,
+} from "./parsers/events.js";
+export type { RawContractEvent, ParsedEventEnvelope, ScValPrimitive } from "./parsers/events.js";
 export { DisputeBuilder } from "./builders/dispute.js";
 export type { DisputeBuilderOptions, DisputeAction } from "./builders/dispute.js";
 export { EscrowBuilder } from "./builders/escrow.js";
