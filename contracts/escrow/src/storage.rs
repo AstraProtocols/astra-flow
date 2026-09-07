@@ -28,6 +28,7 @@ pub enum DataKey {
     Dispute,
     Guard,
     Paused,
+    Amendment,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -86,6 +87,19 @@ pub struct BalanceBook {
     pub deposited: i128,
     pub released: i128,
     pub refunded: i128,
+}
+
+/// Dual-party scope change awaiting mutual approval.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Amendment {
+    pub milestone_id: u32,
+    pub payout_amount: i128,
+    pub description_hash: BytesN<32>,
+    pub new_position: u32,
+    pub proposed_by: Address,
+    pub funder_approved: bool,
+    pub recipient_approved: bool,
 }
 
 /// Adjudication record for a disputed escrow.
@@ -302,4 +316,21 @@ pub fn is_paused(env: &Env) -> bool {
         .instance()
         .get(&DataKey::Paused)
         .unwrap_or(false)
+}
+
+pub fn set_amendment(env: &Env, amendment: &Amendment) {
+    let key = DataKey::Amendment;
+    env.storage().persistent().set(&key, amendment);
+    bump_persistent(env, &key);
+}
+
+pub fn get_amendment(env: &Env) -> Result<Amendment, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Amendment)
+        .ok_or(Error::NotFound)
+}
+
+pub fn clear_amendment(env: &Env) {
+    env.storage().persistent().remove(&DataKey::Amendment);
 }

@@ -6,6 +6,7 @@ mod access;
 mod errors;
 mod events;
 mod math;
+mod milestone;
 mod storage;
 mod token;
 mod ttl;
@@ -24,7 +25,8 @@ pub use math::{
     BPS_SCALE, BPS_SCALE_I128,
 };
 pub use storage::{
-    BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone, MilestoneStatus,
+    Amendment, BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, Milestone,
+    MilestoneStatus,
 };
 pub use ttl::{
     extend_all_persistent, extend_instance, extend_on_initialize, extend_on_proof_submitted,
@@ -321,6 +323,34 @@ impl EscrowContract {
 
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    /// Funder or recipient proposes a scope/order change. Counterparty must approve.
+    pub fn request_milestone_amendment(
+        env: Env,
+        actor: Address,
+        milestone_id: u32,
+        payout_amount: i128,
+        description_hash: BytesN<32>,
+        new_position: u32,
+    ) -> Result<(), Error> {
+        milestone::request_milestone_amendment(
+            &env,
+            actor,
+            milestone_id,
+            payout_amount,
+            description_hash,
+            new_position,
+        )
+    }
+
+    /// Mutual dual-party approval applies the pending milestone amendment.
+    pub fn approve_amendment(env: Env) -> Result<Amendment, Error> {
+        milestone::approve_amendment(&env)
+    }
+
+    pub fn get_amendment(env: Env) -> Result<Amendment, Error> {
+        storage::get_amendment(&env)
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {
