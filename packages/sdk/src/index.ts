@@ -9,6 +9,8 @@ export {
   classifySendResult,
 } from "./errors.js";
 export type { DiagnosticFrame, TransactionFailureDiagnostics } from "./errors.js";
+export { projectEscrow, percentComplete } from "./models/state.js";
+export type { EscrowSnapshot, EscrowProjection } from "./models/state.js";
 export { withExponentialBackoff, isTransientError, ResilientRpcClient, createResilientRpcClient } from "./retry.js";
 export type { RetryOptions, RpcTransport } from "./retry.js";
 export { LruCache, contractStateKey } from "./cache.js";
