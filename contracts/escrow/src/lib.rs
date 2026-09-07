@@ -8,6 +8,7 @@ mod errors;
 mod events;
 mod math;
 mod milestone;
+mod multisig;
 mod storage;
 mod token;
 mod ttl;
@@ -27,8 +28,8 @@ pub use math::{
     BPS_SCALE, BPS_SCALE_I128,
 };
 pub use storage::{
-    Amendment, BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState, EvidenceEntry,
-    Milestone, MilestoneStatus,
+    Amendment, ArbitratorSet, BalanceBook, DataKey, DisputeRecord, EscrowConfig, EscrowState,
+    EvidenceEntry, Milestone, MilestoneStatus,
 };
 pub use ttl::{
     extend_all_persistent, extend_instance, extend_on_initialize, extend_on_proof_submitted,
@@ -122,6 +123,7 @@ impl EscrowContract {
         storage::set_milestone_ids(&env, &ids);
         storage::set_approved_count(&env, 0);
         storage::set_paused(&env, false);
+        storage::set_arbitrators(&env, &multisig::default_set(&env, arbitrator.clone()));
 
         events::emit_initialized(
             &env,
@@ -375,6 +377,29 @@ impl EscrowContract {
     /// Recipient withdraws the linear vested delta for an approved streaming milestone.
     pub fn stream_milestone_payout(env: Env, milestone_id: u32) -> Result<i128, Error> {
         vesting::stream_milestone_payout(&env, milestone_id)
+    }
+
+    /// Dual-party update of the M-of-N arbitrator committee.
+    pub fn configure_arbitrators(
+        env: Env,
+        members: Vec<Address>,
+        threshold: u32,
+    ) -> Result<ArbitratorSet, Error> {
+        multisig::configure_arbitrators(&env, members, threshold)
+    }
+
+    /// Settle a dispute with M-of-N committee signatures.
+    pub fn settle_dispute_quorum(
+        env: Env,
+        funder_bps: u32,
+        recipient_bps: u32,
+        signers: Vec<Address>,
+    ) -> Result<(), Error> {
+        multisig::settle_with_quorum(&env, funder_bps, recipient_bps, signers)
+    }
+
+    pub fn get_arbitrators(env: Env) -> Result<ArbitratorSet, Error> {
+        storage::get_arbitrators(&env)
     }
 
     pub fn get_config(env: Env) -> Result<EscrowConfig, Error> {

@@ -30,6 +30,7 @@ pub enum DataKey {
     Paused,
     Amendment,
     Evidence,
+    Arbitrators,
 }
 
 /// Lifecycle of a single escrow instance.
@@ -123,6 +124,14 @@ pub struct EvidenceEntry {
     pub submitter: Address,
     pub content_hash: BytesN<32>,
     pub submitted_at: u64,
+}
+
+/// M-of-N arbitrator committee bound to this escrow.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbitratorSet {
+    pub members: Vec<Address>,
+    pub threshold: u32,
 }
 
 impl BalanceBook {
@@ -360,4 +369,17 @@ pub fn get_evidence(env: &Env) -> Vec<EvidenceEntry> {
         .persistent()
         .get(&DataKey::Evidence)
         .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_arbitrators(env: &Env, set: &ArbitratorSet) {
+    let key = DataKey::Arbitrators;
+    env.storage().persistent().set(&key, set);
+    bump_persistent(env, &key);
+}
+
+pub fn get_arbitrators(env: &Env) -> Result<ArbitratorSet, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Arbitrators)
+        .ok_or(Error::NotInit)
 }
